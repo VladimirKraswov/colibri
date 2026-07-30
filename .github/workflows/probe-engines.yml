@@ -1,0 +1,68 @@
+name: Probe — do all engines build on the release platforms?
+
+on:
+  push:
+    branches: [ci/engine-portability-probe]
+
+jobs:
+  probe:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            make_args: "ARCH=x86-64-v3"
+          - os: macos-latest
+            name: macos-arm64
+            make_args: ""
+          - os: windows-latest
+            name: windows-x86_64
+            make_args: ""
+            shell: "msys2 {0}"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell || 'bash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+
+      - if: matrix.os == 'macos-latest'
+        run: brew install libomp
+
+      # Each engine built independently so one failure does not mask the others.
+      - name: Build each engine separately
+        run: |
+          cd c
+          rc=0
+          for t in colibri inkling kimi_k3 olmoe; do
+            echo "::group::$t"
+            if make $t ${{ matrix.make_args }} 2>&1 | tee /tmp/$t.log; then
+              echo "RESULT $t: OK"
+            else
+              echo "RESULT $t: FAIL"; rc=1
+            fi
+            echo "::endgroup::"
+          done
+          echo "───────── SUMMARY (${{ matrix.name }}) ─────────"
+          for t in colibri inkling kimi_k3 olmoe; do
+            w=$(grep -ci warning: /tmp/$t.log 2>/dev/null || echo 0)
+            if [ -f "$t" ] || [ -f "$t.exe" ]; then
+              sz=$(ls -lh $t $t.exe 2>/dev/null | head -1 | awk '{print $5}')
+              echo "  $t: BUILT ($sz, warnings=$w)"
+            else
+              echo "  $t: NOT BUILT (warnings=$w)"
+            fi
+          done
+          exit $rc
