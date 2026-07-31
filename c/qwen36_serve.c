@@ -299,6 +299,7 @@ static void handle_conn(sock_t s){
     g_sock_send = sock_send;
     g_ttft = -1;
     g_gen_t0 = now_s();
+    tm_reset();
     g_oa_created = (long)time(NULL);
     snprintf(g_oa_id, sizeof g_oa_id, "chatcmpl-%ld%04d", g_oa_created, (int)(now_s()*1000) % 10000);
 
@@ -313,6 +314,7 @@ static void handle_conn(sock_t s){
     if (g_m.resident_mode) { g_m.first_step = 1; g_m.resident_collecting = 0; }
     int n_done = generate(&g_m, ids, np, n_new, out);
     emit_openai_result(out, np, n_done, g_stream);
+    tm_report();
 
     free(out); free(ids); free(req); free(arena);
     g_sock_out = -1; g_sock_send = NULL;

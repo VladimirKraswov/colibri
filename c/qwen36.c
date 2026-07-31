@@ -653,6 +653,12 @@ static int tm_on(void){ if(g_timers<0){ const char *e=getenv("COLI_TIMERS"); g_t
 double g_dn_sub[4];                           /* DN: proj, conv+split, l2n+rec, norm+out */
 double g_tm_step=0;                           /* step() total (decode) */
 static double g_tm_win_moe=0; static int g_tm_win_n=0;
+static void tm_reset(void){
+    memset(g_tm_dec, 0, sizeof g_tm_dec); memset(g_tm_pre, 0, sizeof g_tm_pre);
+    memset(g_dn_sub, 0, sizeof g_dn_sub);
+    g_tm_dec_tokens = g_tm_pre_tokens = 0; g_tm_step = 0;
+    g_tm_win_moe = 0; g_tm_win_n = 0;
+}
 static void tm_add(int S, int idx, double ms){
     if(S==1){
         g_tm_dec[idx]+=ms;
