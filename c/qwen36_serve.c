@@ -313,6 +313,14 @@ static void handle_conn(sock_t s){
     /* COLIBRI_RESIDENT: re-collect this request's experts (model is shared across requests) */
     if (g_m.resident_mode) { g_m.first_step = 1; g_m.resident_collecting = 0; }
     int n_done = generate(&g_m, ids, np, n_new, out);
+    {
+        const char *log_ids = getenv("COLI_LOG_TOKEN_IDS");
+        if (log_ids && atoi(log_ids) != 0) {
+            fprintf(stderr, "[serve] completion ids (%d):", n_done);
+            for (int i=np; i<np+n_done; i++) fprintf(stderr, " %d", out[i]);
+            fputc('\n', stderr);
+        }
+    }
     emit_openai_result(out, np, n_done, g_stream);
     tm_report();
 
