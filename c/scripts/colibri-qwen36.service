@@ -16,6 +16,7 @@ Environment=CACHE_PER_LAYER=256
 Environment=COLI_SENSITIVE_F16=1
 Environment=COLI_ROUTER_I8=0
 Environment=COLI_LOG_TOKEN_IDS=0
+Environment=COLI_DEFAULT_THINKING=0
 CPUAffinity=0-39
 ExecStartPre=/usr/bin/test -x /root/colibri-qwen36/c/qwen36_serve
 ExecStartPre=/usr/bin/test -d /Volumes/Extend/qwen36-hauhau-colibri-q8

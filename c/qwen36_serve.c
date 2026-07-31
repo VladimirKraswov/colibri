@@ -252,6 +252,10 @@ static void handle_conn(sock_t s){
     if (n_new > 8192) n_new = 8192;          /* hard cap to protect memory */
 
     int enable_thinking = 1;
+    {
+        const char *default_thinking = getenv("COLI_DEFAULT_THINKING");
+        if (default_thinking) enable_thinking = atoi(default_thinking) != 0;
+    }
     jval *et = json_get(root, "enable_thinking");
     if (et && et->t == J_BOOL) enable_thinking = et->boolean;
     jval *ctk = json_get(root, "chat_template_kwargs");
