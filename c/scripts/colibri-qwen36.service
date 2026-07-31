@@ -1,0 +1,35 @@
+[Unit]
+Description=Colibri Qwen3.6 CPU-only inference server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/colibri-qwen36
+Environment=SNAP=/Volumes/Extend/qwen36-hauhau-colibri-q8
+Environment=HOST=127.0.0.1
+Environment=PORT=18080
+Environment=CTX_SIZE=131072
+Environment=THREADS=20
+Environment=CACHE_PER_LAYER=256
+Environment=COLI_SENSITIVE_F16=1
+Environment=COLI_ROUTER_I8=0
+Environment=COLI_LOG_TOKEN_IDS=0
+CPUAffinity=0-39
+ExecStartPre=/usr/bin/test -x /root/colibri-qwen36/c/qwen36_serve
+ExecStartPre=/usr/bin/test -d /Volumes/Extend/qwen36-hauhau-colibri-q8
+ExecStart=/root/colibri-qwen36/c/scripts/run_qwen36_q8_cpu.sh
+Restart=always
+RestartSec=4
+TimeoutStartSec=infinity
+TimeoutStopSec=45
+KillSignal=SIGTERM
+LimitMEMLOCK=infinity
+TasksMax=infinity
+OOMScoreAdjust=-700
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
