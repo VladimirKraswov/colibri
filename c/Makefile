@@ -446,6 +446,9 @@ qwen36$(EXE): qwen36.c st.h json.h compat.h
 qwen36_serve$(EXE): qwen36_serve.c qwen36.c st.h json.h compat.h
 	$(CC) $(CFLAGS) qwen36_serve.c -o qwen36_serve$(EXE) $(LDFLAGS) $(if $(IS_WIN),-lws2_32)
 
+bench-qwen36-avx2: tools/bench_qwen36_avx2.c
+	$(CC) $(CFLAGS) tools/bench_qwen36_avx2.c -o tools/bench_qwen36_avx2$(EXE) $(LDFLAGS)
+
 inkling$(EXE): inkling.c st.h json.h compat.h $(INK_CUDA_OBJ)
 	$(CC) $(CFLAGS) inkling.c $(INK_CUDA_OBJ) -o inkling$(EXE) $(LDFLAGS)
 
