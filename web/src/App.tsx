@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react"
 import {
   Activity,
   ArrowUp,
@@ -8,6 +8,8 @@ import {
   Cpu,
   Database,
   Feather,
+  FileAudio,
+  FileText,
   Gauge,
   Globe,
   HardDrive,
@@ -16,13 +18,17 @@ import {
   Layers,
   Link2,
   LoaderCircle,
+  Mic,
   MemoryStick,
   MessageSquareText,
   MonitorDot,
+  Paperclip,
   RefreshCw,
   SlidersHorizontal,
   Timer,
   Trash2,
+  Video,
+  X,
   Zap,
 } from "lucide-react"
 
@@ -37,11 +43,19 @@ import { Profiling } from "./Profiling"
 import { persistPublicSettings, stored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { useLocale } from "./i18n"
+import {
+  attachmentAccept,
+  attachmentFromFile,
+  createPcmRecorder,
+  transcribeAttachment,
+  type ChatAttachment,
+  type PcmRecorder,
+} from "@/lib/attachments"
 
-const message = (role: ChatMessage["role"], content: string): ChatMessage => {
+const message = (role: ChatMessage["role"], content: string, attachments?: ChatAttachment[]): ChatMessage => {
   let id: string
   try { id = crypto.randomUUID() } catch { id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16) }) }
-  return { id, role, content }
+  return { id, role, content, ...(attachments?.length ? { attachments } : {}) }
 }
 
 export default function App() {
@@ -76,10 +90,20 @@ export default function App() {
   const [connected, setConnected] = useState(false)
   const [view, setView] = useState<"chat" | "brain" | "profiling">("chat")
   const [error, setError] = useState("")
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [dragging, setDragging] = useState(false)
+  const [dictation, setDictation] = useState<"idle" | "requesting" | "recording" | "transcribing">("idle")
+  const [dictationSeconds, setDictationSeconds] = useState(0)
   const autoConnected = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const probeRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dragDepthRef = useRef(0)
+  const recorderRef = useRef<PcmRecorder | null>(null)
+  const dictationStartedRef = useRef(0)
+  const dictationIntervalRef = useRef<number | null>(null)
+  const dictationTimeoutRef = useRef<number | null>(null)
   const messages = conversations[cacheSlot] || []
   const kvSlots = Math.max(1, health?.kv_slots || 1)
   const active = activeRequests(health)
@@ -108,6 +132,9 @@ export default function App() {
   useEffect(() => () => {
     probeRef.current?.abort()
     abortRef.current?.abort()
+    recorderRef.current?.cancel()
+    if (dictationIntervalRef.current !== null) window.clearInterval(dictationIntervalRef.current)
+    if (dictationTimeoutRef.current !== null) window.clearTimeout(dictationTimeoutRef.current)
   }, [])
 
   // EFFECT #4
@@ -172,15 +199,19 @@ export default function App() {
     setTimeout(() => connect(), 0)
   }
 
-  const canSend = useMemo(() => draft.trim() && model && !loading, [draft, loading, model])
+  const canSend = useMemo(
+    () => Boolean((draft.trim() || attachments.length) && model && !loading),
+    [attachments.length, draft, loading, model],
+  )
 
   const send = async () => {
     const content = draft.trim()
-    if (!content || loading) return
-    const user = message("user", content)
+    if ((!content && !attachments.length) || loading) return
+    const user = message("user", content, attachments)
     const assistant = message("assistant", "")
     const history = [...messages, user]
     setDraft("")
+    setAttachments([])
     setError("")
     updateMessages([...history, assistant])
     setLoading(true)
@@ -236,8 +267,122 @@ export default function App() {
     }
   }
 
+  const addFiles = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList)
+    const available = Math.max(0, 6 - attachments.length)
+    const next: ChatAttachment[] = []
+    const errors: string[] = files.length > available ? ["Up to six files can be attached to one message."] : []
+    for (const file of files.slice(0, available)) {
+      try {
+        let attachment = await attachmentFromFile(file)
+        if (attachment.kind === "audio") attachment = await transcribeAttachment(attachment)
+        next.push(attachment)
+      } catch (cause) {
+        errors.push(cause instanceof Error ? cause.message : `Could not process ${file.name}`)
+      }
+    }
+    if (next.length) setAttachments((current) => [...current, ...next].slice(0, 6))
+    setError(errors.slice(0, 3).join(" · "))
+  }
+
+  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ""
+    void addFiles(files)
+  }
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return
+    event.preventDefault()
+    dragDepthRef.current++
+    setDragging(true)
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return
+    event.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (!dragDepthRef.current) setDragging(false)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "copy"
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDragging(false)
+    void addFiles(event.dataTransfer.files)
+  }
+
+  const clearDictationTimers = () => {
+    if (dictationIntervalRef.current !== null) window.clearInterval(dictationIntervalRef.current)
+    if (dictationTimeoutRef.current !== null) window.clearTimeout(dictationTimeoutRef.current)
+    dictationIntervalRef.current = null
+    dictationTimeoutRef.current = null
+  }
+
+  async function stopDictation() {
+    const recorder = recorderRef.current
+    if (!recorder) return
+    recorderRef.current = null
+    clearDictationTimers()
+    setDictation("transcribing")
+    try {
+      const blob = await recorder.stop()
+      const file = new File([blob], `dictation-${Date.now()}.wav`, { type: "audio/wav" })
+      const result = await transcribeAttachment(await attachmentFromFile(file))
+      if (!result.transcript) throw new Error("No speech recognized")
+      setDraft((current) => `${current}${current.trim() ? " " : ""}${result.transcript}`)
+      setError("")
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Dictation failed")
+    } finally {
+      setDictation("idle")
+      setDictationSeconds(0)
+    }
+  }
+
+  const startDictation = async () => {
+    if (loading || dictation !== "idle") return
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      window.location.assign(`https://${window.location.hostname}:8443/`)
+      return
+    }
+    setDictation("requesting")
+    setError("")
+    try {
+      recorderRef.current = await createPcmRecorder()
+      dictationStartedRef.current = performance.now()
+      setDictation("recording")
+      dictationIntervalRef.current = window.setInterval(
+        () => setDictationSeconds((performance.now() - dictationStartedRef.current) / 1000),
+        200,
+      )
+      dictationTimeoutRef.current = window.setTimeout(() => void stopDictation(), 24500)
+    } catch (cause) {
+      setDictation("idle")
+      setError(cause instanceof Error ? cause.message : "Microphone access failed")
+    }
+  }
+
+  const toggleDictation = () => {
+    if (dictation === "recording") void stopDictation()
+    else if (dictation === "idle") void startDictation()
+  }
+
   return (
-    <div className="app-shell">
+    <div
+      className={cn("app-shell", dragging && "is-dragging")}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {dragging ? <div className="drop-overlay"><strong>Drop files to attach</strong><span>Audio · video · images · text</span></div> : null}
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand-mark"><Feather className="size-5" /></div>
@@ -356,7 +501,19 @@ export default function App() {
               {messages.map((item) => (
                 <article key={item.id} className={cn("message", item.role)}>
                   <div className="avatar">{item.role === "user" ? "Y" : <Feather className="size-4" />}</div>
-                  <div><div className="message-meta">{item.role === "user" ? t("chat.you") : t("chat.colibri")}</div><div className="message-body">{item.content || <span className="typing" aria-label="Generating"><i /><i /><i /></span>}</div></div>
+                  <div>
+                    <div className="message-meta">{item.role === "user" ? t("chat.you") : t("chat.colibri")}</div>
+                    {item.attachments?.length ? <div className="message-attachments">
+                      {item.attachments.map((attachment) => <div key={attachment.id} className="message-attachment">
+                        {attachment.kind === "image" && attachment.data ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt={attachment.name} />
+                          : attachment.kind === "video" && attachment.data ? <video src={`data:${attachment.mimeType};base64,${attachment.data}`} controls preload="metadata" />
+                            : attachment.kind === "audio" && attachment.data ? <audio src={`data:${attachment.mimeType};base64,${attachment.data}`} controls preload="metadata" />
+                              : attachment.kind === "text" ? <FileText /> : <FileAudio />}
+                        <span>{attachment.name}</span>
+                      </div>)}
+                    </div> : null}
+                    <div className="message-body">{item.content || (item.role === "assistant" ? <span className="typing" aria-label="Generating"><i /><i /><i /></span> : null)}</div>
+                  </div>
                 </article>
               ))}
               <div ref={bottomRef} />
@@ -366,9 +523,37 @@ export default function App() {
 
         <div className="composer-wrap">
           {error && <div className="error-banner" role="alert">{t(error)}</div>}
-          <div className="composer">
-            <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t("chat.placeholder")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} />
-            <div className="composer-foot"><span><MessageSquareText className="size-3.5" /> {t("chat.inputHint")}</span>{loading ? <Button variant="destructive" size="icon" aria-label={t("chat.stop")} onClick={() => abortRef.current?.abort()}><CircleStop className="size-4" /></Button> : <Button size="icon" aria-label={t("chat.send")} disabled={!canSend} onClick={() => void send()}><ArrowUp className="size-4" /></Button>}</div>
+          <div className={cn("composer", dictation === "recording" && "is-recording")}>
+            {attachments.length ? <div className="pending-attachments">
+              {attachments.map((attachment) => <div key={attachment.id} className="pending-attachment">
+                {attachment.kind === "image" && attachment.data ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+                  : attachment.kind === "video" ? <Video />
+                    : attachment.kind === "audio" ? <FileAudio /> : <FileText />}
+                <span>{attachment.name}</span>
+                <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}><X /></button>
+              </div>)}
+            </div> : null}
+            <Textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={dictation === "recording" ? "Speak now…" : dictation === "transcribing" ? "Recognizing speech…" : t("chat.placeholder")}
+              onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }}
+            />
+            <div className="composer-foot">
+              <div className="composer-tools">
+                <input ref={fileInputRef} type="file" accept={attachmentAccept} multiple onChange={handleFileInput} />
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loading}><Paperclip /> Attach</button>
+                <button
+                  type="button"
+                  className={cn(dictation === "recording" && "recording")}
+                  onClick={toggleDictation}
+                  disabled={loading || dictation === "requesting" || dictation === "transcribing"}
+                  aria-pressed={dictation === "recording"}
+                ><Mic /> {dictation === "recording" ? `${dictationSeconds.toFixed(1)}s` : dictation === "transcribing" ? "Recognizing" : "Dictate"}</button>
+                <span><MessageSquareText className="size-3.5" /> {t("chat.inputHint")}</span>
+              </div>
+              {loading ? <Button variant="destructive" size="icon" aria-label={t("chat.stop")} onClick={() => abortRef.current?.abort()}><CircleStop className="size-4" /></Button> : <Button size="icon" aria-label={t("chat.send")} disabled={!canSend} onClick={() => void send()}><ArrowUp className="size-4" /></Button>}
+            </div>
           </div>
         </div>
         </>}

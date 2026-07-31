@@ -1,9 +1,12 @@
+import { apiMessageContent, type ChatAttachment } from "./attachments"
+
 export type ChatRole = "system" | "user" | "assistant"
 
 export interface ChatMessage {
   id: string
   role: ChatRole
   content: string
+  attachments?: ChatAttachment[]
 }
 
 interface OpenAIError {
@@ -155,7 +158,10 @@ export async function streamChat(options: StreamChatOptions): Promise<StreamChat
     signal: options.signal,
     body: JSON.stringify({
       model: options.model,
-      messages: options.messages.map(({ role, content }) => ({ role, content })),
+      messages: options.messages.map(({ role, content, attachments }) => ({
+        role,
+        content: apiMessageContent(content, attachments),
+      })),
       temperature: options.temperature,
       max_completion_tokens: options.maxTokens,
       enable_thinking: options.enableThinking,

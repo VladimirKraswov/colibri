@@ -1,0 +1,35 @@
+[Unit]
+Description=GigaAM-v3 RNN-T Q8 CPU speech recognition for LLM Studio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/transcribe.cpp
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/transcribe.cpp/bindings/python/src
+Environment=TRANSCRIBE_LIBRARY=/opt/transcribe.cpp/build-shared/src/libtranscribe.so
+Environment=TRANSCRIBE_BACKEND=cpu
+Environment=GIGAAM_MODEL=/Volumes/Extend/asr/gigaam-v3-e2e-rnnt-Q8_0.gguf
+Environment=GIGAAM_HOST=127.0.0.1
+Environment=GIGAAM_PORT=18081
+Environment=GIGAAM_THREADS=8
+Environment=GIGAAM_MAX_AUDIO_SECONDS=600
+Environment=GIGAAM_CHUNK_SECONDS=24
+ExecStart=/usr/bin/python3 /usr/local/libexec/gigaam_asr_server.py
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=180
+TimeoutStopSec=30
+Nice=-5
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/transcribe.cpp /Volumes/Extend/asr /usr/local/libexec/gigaam_asr_server.py
+
+[Install]
+WantedBy=multi-user.target
