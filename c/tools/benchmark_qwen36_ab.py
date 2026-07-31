@@ -128,6 +128,12 @@ def main():
             "exact_text_match": baseline["text"] == candidate["text"],
             "text_similarity": ratio,
         }
+        baseline_prompt_tokens = baseline["usage"].get("prompt_tokens")
+        candidate_prompt_tokens = candidate["usage"].get("prompt_tokens")
+        row["prompt_token_match"] = (
+            baseline_prompt_tokens is not None
+            and baseline_prompt_tokens == candidate_prompt_tokens
+        )
         if use_default_checks:
             row["baseline_task_pass"] = default_task_pass(index - 1, baseline["text"])
             row["candidate_task_pass"] = default_task_pass(index - 1, candidate["text"])
@@ -150,6 +156,7 @@ def main():
             "candidate_not_worse_on_tasks": all(
                 x["candidate_task_pass"] or not x["baseline_task_pass"] for x in result["prompts"]
             ),
+            "all_prompt_token_counts_match": all(x["prompt_token_match"] for x in result["prompts"]),
         })
 
     rendered = json.dumps(result, ensure_ascii=False, indent=2)

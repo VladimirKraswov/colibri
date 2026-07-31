@@ -244,6 +244,7 @@ static void handle_conn(sock_t s){
     jval *st = json_get(root, "stream");
     if (st && st->t == J_BOOL) stream = st->boolean;
     int max_tokens = (int)jnum(root, "max_tokens");
+    if (max_tokens <= 0) max_tokens = (int)jnum(root, "max_completion_tokens");
     int n_new = (max_tokens > 0) ? max_tokens : 256;
     if (n_new > 8192) n_new = 8192;          /* hard cap to protect memory */
 
