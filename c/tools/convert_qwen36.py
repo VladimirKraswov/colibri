@@ -371,15 +371,31 @@ def main():
                                    path_in_repo=path.name, path_or_fileobj=str(path))
             print(f"  streamed -> {args.upload_repo}/{path.name}")
 
-    # ---- resume: discover already-uploaded shards so a restart skips them ----
-    done_files = set()
+    # ---- resume: discover valid local/uploaded shards so a restart skips them ----
+    # Write new shards through .part + atomic replace below. A killed converter
+    # can therefore leave only an ignored .part file, never a trusted truncated
+    # final shard.
+    def valid_local_safetensors(path: Path) -> bool:
+        try:
+            with safe_open_np(str(path), framework="np") as handle:
+                return bool(list(handle.keys()))
+        except Exception as exc:
+            print(f"[resume] ignoring invalid local shard {path.name}: {exc}")
+            return False
+
+    done_files = {
+        path.name for path in out.glob("*.safetensors")
+        if valid_local_safetensors(path)
+    }
+    if done_files:
+        print(f"[resume] {len(done_files)} valid local shard(s); will skip finished work.")
     if args.upload_repo and stream_api is not None:
         try:
-            done_files = set(stream_api.list_repo_files(args.upload_repo, repo_type="model"))
-            print(f"[resume] {len(done_files)} file(s) already on {args.upload_repo}; "
+            remote_done = set(stream_api.list_repo_files(args.upload_repo, repo_type="model"))
+            done_files.update(remote_done)
+            print(f"[resume] {len(remote_done)} file(s) already on {args.upload_repo}; "
                   f"will skip finished layers.")
         except Exception as e:
-            done_files = set()
             print(f"[resume] could not list repo ({e}); running full conversion.")
 
     # ---- globals shard (embed / lm_head / final norm) as f16 ----
@@ -392,7 +408,9 @@ def main():
             newk = k.replace("model.language_model.", "model.")
             g_out[newk] = arr
         gpath = out / "model-globals.safetensors"
-        save_file(g_out, str(gpath))
+        gpart = gpath.with_suffix(gpath.suffix + ".part")
+        save_file(g_out, str(gpart))
+        os.replace(gpart, gpath)
         print(f"[globals] {gpath.name} ({len(g_out)} tensors)")
         if args.stream_upload:
             upload_local(gpath)
@@ -455,7 +473,9 @@ def main():
             # everything else stays f16
             tens[newk] = get_tensor(k).half()
         out_path = out / f"model-{a:05d}.safetensors"
-        save_file(tens, str(out_path))
+        out_part = out_path.with_suffix(out_path.suffix + ".part")
+        save_file(tens, str(out_part))
+        os.replace(out_part, out_path)
         print(f"[layer {i} -> active {a}] {out_path.name} ({len(tens)} tensors)")
         if args.stream_upload:
             upload_local(out_path)
