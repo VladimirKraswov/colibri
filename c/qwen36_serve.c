@@ -131,7 +131,7 @@ static void send_str(sock_t s, const char *str){
 
 /* Build a Qwen chat-template prompt from OpenAI-style messages.
  * template: <|im_start|>role\ncontent<|im_end|>\n ... <|im_start|>assistant\n */
-static void build_prompt(jval *messages, char *out, int outcap){
+static int build_prompt(jval *messages, char *out, int outcap){
     int o = 0;
     if (messages && messages->t == J_ARR){
         for (int i=0;i<messages->len;i++){
@@ -150,6 +150,7 @@ static void build_prompt(jval *messages, char *out, int outcap){
     const char *tail = "<|im_start|>assistant\n";
     if (o + (int)strlen(tail) < outcap) o += snprintf(out+o, outcap-o, "%s", tail);
     out[o] = 0;
+    return o;
 }
 
 static void send_error(sock_t s, int code, const char *msg){
@@ -244,11 +245,22 @@ static void handle_conn(sock_t s){
 
     fprintf(stderr, "[serve] chat: stream=%d max_tokens=%d\n", stream, n_new);
 
-    /* build prompt from chat template and encode */
-    char prompt[1<<16];   /* 64KB; chat prompts are small. build_prompt truncates if exceeded. */
-    build_prompt(messages, prompt, sizeof prompt);
+    /* Build without the former fixed 64 KiB truncation. The request body is
+     * already capped at 64 MiB; template markers add at most ~64 bytes/message. */
+    size_t prompt_cap = strlen(body) + (size_t)messages->len * 64u + 64u;
+    if (prompt_cap > 128u * 1024u * 1024u){
+        send_error(s, 400, "templated prompt is too large");
+        free(req); free(arena); SOCK_CLOSE(s); return;
+    }
+    char *prompt = malloc(prompt_cap);
+    if (!prompt){
+        send_error(s, 500, "out of memory building prompt");
+        free(req); free(arena); SOCK_CLOSE(s); return;
+    }
+    build_prompt(messages, prompt, (int)prompt_cap);
     int *ids = NULL, np = 0;
     encode_text(prompt, &ids, &np);
+    free(prompt);
     if (np <= 0){
         send_error(s, 400, "tokenizer produced no prompt tokens");
         free(req); free(arena); free(ids); SOCK_CLOSE(s); return;
@@ -293,7 +305,7 @@ int main(int argc, char **argv){
     g_pilot = getenv("PILOT") ? atoi(getenv("PILOT")) : 0;
     g_wide  = getenv("WIDE")  ? atoi(getenv("WIDE"))  : 1;
     if (g_wide < 1) g_wide = 1; if (g_wide > 4) g_wide = 4;
-    const char *mv = getenv("MODEL"); if (mv && *mv) g_model = mv;
+    const char *mv = getenv("MODEL"); if (mv && *mv) snprintf(g_model, sizeof g_model, "%s", mv);
     int hot_n = getenv("HOT") ? atoi(getenv("HOT")) : 0;
     int cap   = argc > 1 ? atoi(argv[1]) : 16;
     int bits  = argc > 2 ? atoi(argv[2]) : 8;

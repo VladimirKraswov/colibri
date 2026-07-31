@@ -301,7 +301,9 @@ static double g_gen_t0 = 0;            /* generate() start (monotonic seconds) *
 static double g_ttft   = -1;           /* time to first token (s); -1 = unset */
 static long   g_oa_created = 0;        /* unix timestamp for OpenAI "created" */
 static char   g_oa_id[64];             /* OpenAI-style id, e.g. chatcmpl-... */
-static const char *g_model = "qwen3.6-35b-a3b-colibri";
+/* Bound the API-visible model name so response-size calculations remain
+ * deterministic even when MODEL comes from an untrusted service environment. */
+static char   g_model[128] = "qwen3.6-35b-a3b-colibri";
 static double now_s(void);   /* forward decl; defined later near model code */
 
 /* Output sink for server mode: when g_sock_out >= 0, SSE/JSON bytes are routed
@@ -451,7 +453,7 @@ static void stream_token(int id){
     if (g_openai){
         if (g_ttft < 0) g_ttft = now_s() - g_gen_t0;   /* TTFT on first token */
         if (!g_tok){
-            char jb[160];
+            char jb[512];
             snprintf(jb, sizeof jb,
               "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
               "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%d\"},\"finish_reason\":null}]}",
@@ -463,8 +465,9 @@ static void stream_token(int id){
         unsigned char chunk[256]; int cn = 0;
         utf8_drain(g_sbuf, &g_sbn, tmp, tn, chunk, &cn);
         if (cn > 0){
-            char esc[1024]; json_escape(chunk, cn, esc, sizeof esc);
-            char jb[1200];
+            /* A byte may expand to six bytes (\u00xx) in JSON. */
+            char esc[1536]; json_escape(chunk, cn, esc, sizeof esc);
+            char jb[2048];
             snprintf(jb, sizeof jb,
               "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
               "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
@@ -501,7 +504,7 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
             for (int k=0;k<g_sbn;k++) chunk[cn++] = g_sbuf[k]; g_sbn = 0;
             if (cn > 0){
                 char esc[256]; json_escape(chunk, cn, esc, sizeof esc);
-                char jb[400];
+                char jb[1024];
                 snprintf(jb, sizeof jb,
                   "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
                   "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
@@ -509,7 +512,7 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
                 sse_chunk(jb);
             }
         }
-        char jb[700];
+        char jb[1024];
         snprintf(jb, sizeof jb,
           "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
           "\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],"
@@ -521,10 +524,22 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
         if (g_sock_out >= 0 && g_sock_send) g_sock_send(g_sock_out, done, dl);
         else { fwrite(done, 1, (size_t)dl, stdout); fflush(stdout); }
     } else {
-        char text[1<<16]; decode_range(out, np, np+n_new, text, sizeof text);
-        char esc[1<<16]; json_escape((const unsigned char*)text, (int)strlen(text), esc, sizeof esc);
-        char buf[1<<20];
-        int bl = snprintf(buf, sizeof buf,
+        /* Each decoded token can contribute up to 255 bytes, and JSON control
+         * escaping can grow each byte to six. Allocate from the actual request
+         * size instead of silently truncating long non-streaming completions. */
+        size_t text_cap = (size_t)(n_new > 0 ? n_new : 1) * 256u + 17u;
+        char *text = malloc(text_cap);
+        if (!text) { fprintf(stderr, "OOM allocating OpenAI text response\n"); exit(1); }
+        decode_range(out, np, np+n_new, text, (int)text_cap);
+        size_t text_len = strlen(text);
+        size_t esc_cap = text_len * 6u + 1u;
+        char *esc = malloc(esc_cap);
+        if (!esc) { free(text); fprintf(stderr, "OOM allocating escaped OpenAI response\n"); exit(1); }
+        json_escape((const unsigned char*)text, (int)text_len, esc, (int)esc_cap);
+        size_t buf_cap = strlen(esc) + strlen(g_model) + strlen(g_oa_id) + 1024u;
+        char *buf = malloc(buf_cap);
+        if (!buf) { free(esc); free(text); fprintf(stderr, "OOM allocating OpenAI JSON response\n"); exit(1); }
+        int bl = snprintf(buf, buf_cap,
           "{\"id\":\"%s\",\"object\":\"chat.completion\",\"created\":%ld,\"model\":\"%s\","
           "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}],"
           "\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d,\"total_tokens\":%d},"
@@ -532,6 +547,7 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
           g_oa_id, g_oa_created, g_model, esc, np, n_new, np+n_new, g_ttft, tps, total);
         if (g_sock_out >= 0 && g_sock_send) g_sock_send(g_sock_out, buf, bl);
         else { fwrite(buf, 1, (size_t)bl, stdout); fflush(stdout); }
+        free(buf); free(esc); free(text);
     }
 }
 
@@ -906,6 +922,7 @@ static void load_cfg(Cfg *c, const char *snap) {
  * head dims from the actual weight shapes, so these are authoritative. Falls
  * back silently to the i%4==3 pattern and defaults if the file is absent. */
 static void load_meta(Cfg *c, const char *snap) {
+    int config_n_layers = c->n_layers;
     char path[2048]; snprintf(path, sizeof(path), "%s/qwen36_meta.json", snap);
     FILE *f = fopen(path, "rb"); if (!f) { printf("[meta] %s not found; using i%%4==3 + defaults\n", path); return; }
     fseek(f,0,SEEK_END); long n=ftell(f); fseek(f,0,SEEK_SET);
@@ -932,6 +949,11 @@ static void load_meta(Cfg *c, const char *snap) {
         if((v=json_get(r,"norm_topk_prob"))&&v->t==J_BOOL) c->norm_topk=v->boolean;
         if((v=json_get(r,"has_bias"))&&v->t==J_BOOL) c->has_bias=v->boolean;
         if((v=json_get(r,"has_qk_norm"))&&v->t==J_BOOL) c->has_qk_norm=v->boolean;
+        if (c->n_layers != config_n_layers) {
+            fprintf(stderr, "qwen36_meta.json n_layers=%d disagrees with config.json n_layers=%d\n",
+                    c->n_layers, config_n_layers);
+            exit(1);
+        }
         /* derive rotary_dim from head_dim * partial_rotary_factor (HF formula) */
         if (c->partial_rotary_factor > 0.f)
             c->rotary_dim = (int)(c->head_dim * c->partial_rotary_factor + 0.5f);
@@ -976,20 +998,27 @@ static void model_init(Model *m, const char *snap, int cap, int bits) {
     m->quant_bits = bits;
     load_cfg(&m->c, snap);
     load_meta(&m->c, snap);
+    if (m->c.n_layers < 1 || m->c.n_layers > 1024 ||
+        m->c.hidden < 1 || m->c.vocab < 1 || m->c.n_experts < 1) {
+        fprintf(stderr, "invalid model dimensions: layers=%d hidden=%d vocab=%d experts=%d\n",
+                m->c.n_layers, m->c.hidden, m->c.vocab, m->c.n_experts);
+        exit(1);
+    }
     if (m->c.rotary_dim > m->c.head_dim || m->c.rotary_dim % 2 != 0) {
         fprintf(stderr, "rotary_dim %d invalid for head_dim %d\n", m->c.rotary_dim, m->c.head_dim); exit(1);
     }
     st_init(&m->S, snap);
     Cfg *c = &m->c;
+    size_t n_layers = (size_t)c->n_layers;
     double t0 = now_s();
     m->embed      = load_t(m, "model.embed_tokens.weight");
     m->lm_head    = load_t(m, "lm_head.weight");
     m->final_norm = load_t(m, "model.norm.weight");
-    m->L = calloc(c->n_layers, sizeof(Layer));
+    m->L = calloc(n_layers, sizeof(Layer));
     /* Phase 2: the converter stores EVERY layer (Gated-Attention + Gated DeltaNet)
      * under its OWN original index model.layers.{i}. So active_of is the identity
      * map; experts and dense weights are read from model.layers.{i} for all i. */
-    m->active_of = malloc((size_t)c->n_layers * sizeof(int));
+    m->active_of = malloc(n_layers * sizeof(int));
     for (int i = 0; i < c->n_layers; i++) m->active_of[i] = i;
     char nm[256];
     for (int i = 0; i < c->n_layers; i++) {
@@ -1039,14 +1068,14 @@ static void model_init(Model *m, const char *snap, int cap, int bits) {
             #undef LD4
         }
     }
-    m->cache = calloc(c->n_layers, sizeof(LCache));
+    m->cache = calloc(n_layers, sizeof(LCache));
     for (int i = 0; i < c->n_layers; i++) {
         m->cache[i].cap = cap;
         m->cache[i].slots = calloc(cap, sizeof(Slot));
     }
     /* per-layer DeltaNet recurrent + conv state (only for linear_attention layers) */
-    m->DN_rec = calloc(c->n_layers, sizeof(float*));
-    m->DN_conv = calloc(c->n_layers, sizeof(float*));
+    m->DN_rec = calloc(n_layers, sizeof(float*));
+    m->DN_conv = calloc(n_layers, sizeof(float*));
     for (int i = 0; i < c->n_layers; i++) {
         if (c->is_attn[i]) { m->DN_rec[i] = NULL; m->DN_conv[i] = NULL; continue; }
         if (c->dn_vheads <= 0) { fprintf(stderr, "layer %d is DeltaNet but dn dims missing from meta\n", i); exit(1); }
@@ -1900,7 +1929,8 @@ static void ensure_kv(Model *m){
         for (int i = 0; i < c->n_layers; i++){ if (m->K[i]) free(m->K[i]); if (m->V[i]) free(m->V[i]); }
         free(m->K); free(m->V); m->K = NULL; m->V = NULL;
     }
-    m->K = calloc(c->n_layers, sizeof(float*)); m->V = calloc(c->n_layers, sizeof(float*));
+    size_t n_layers = (size_t)c->n_layers;
+    m->K = calloc(n_layers, sizeof(float*)); m->V = calloc(n_layers, sizeof(float*));
     for (int i = 0; i < c->n_layers; i++){
         if (c->is_attn[i]){
             m->K[i] = falloc((int64_t)c->kv_heads * m->max_t * c->k_head_dim);
@@ -2020,7 +2050,7 @@ int main(int argc, char **argv) {
     g_wide  = getenv("WIDE")  ? atoi(getenv("WIDE"))  : 1;
     if (g_wide < 1) g_wide = 1; if (g_wide > 4) g_wide = 4;
     if (getenv("OPENAI")) g_openai = 1;                       /* OpenAI-compatible output */
-    const char *mv = getenv("MODEL"); if (mv && *mv) g_model = mv;
+    const char *mv = getenv("MODEL"); if (mv && *mv) snprintf(g_model, sizeof g_model, "%s", mv);
     int hot_n = getenv("HOT") ? atoi(getenv("HOT")) : 0;
     int cap   = argc > 1 ? atoi(argv[1]) : 16;
     int bits  = argc > 2 ? atoi(argv[2]) : 4;

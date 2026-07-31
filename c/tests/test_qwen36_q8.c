@@ -37,6 +37,18 @@ int main(void) {
         }
     }
 
+    {
+        unsigned char raw[255];
+        char escaped[1536];
+        memset(raw, 1, sizeof raw);
+        int n = json_escape(raw, (int)sizeof raw, escaped, sizeof escaped);
+        if (n != 6 * (int)sizeof raw || escaped[n] != 0) {
+            fprintf(stderr, "worst-case JSON escape truncated: got=%d want=%zu\n",
+                    n, 6 * sizeof raw);
+            return 1;
+        }
+    }
+
     enum { N = 8, I = 64, O = 48 };
     float x[N][I], scales[N][O], ref[N][O], got[N][O];
     int8_t weights[N][O][I];
