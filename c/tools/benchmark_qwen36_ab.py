@@ -4,6 +4,7 @@
 import argparse
 import difflib
 import json
+import re
 import statistics
 import time
 import urllib.error
@@ -17,6 +18,19 @@ DEFAULT_PROMPTS = [
     "Исправь ошибку в Python-выражении: values = [x*2 for x in range(5) if x % 2 = 0]",
     "Сожми смысл фразы до одного предложения: резервная копия не считается проверенной, пока не выполнено тестовое восстановление.",
 ]
+
+
+def default_task_pass(index, text):
+    """Small factual gates for the built-in suite; independent of wording."""
+    normalized = text.casefold().replace("ё", "е")
+    checks = [
+        lambda: bool(re.search(r"(?<!\d)391(?!\d)", normalized)),
+        lambda: bool(re.search(r"(?<!\d)42(?!\d)", normalized)),
+        lambda: "париж" in normalized and "сен" in normalized,
+        lambda: "==" in text,
+        lambda: "восстанов" in normalized and "провер" in normalized,
+    ]
+    return bool(checks[index]())
 
 
 def request_json(url, payload=None, timeout=600):
@@ -100,19 +114,24 @@ def main():
         "candidate": model_id(args.candidate, args.timeout),
     }
     result = {"models": models, "prompts": [], "quality": {}}
+    use_default_checks = args.suite is None
     for index, prompt in enumerate(prompts, 1):
         print(f"[{index}/{len(prompts)}] baseline", flush=True)
         baseline = run_one(args.baseline, models["baseline"], prompt, args.max_tokens, args.timeout)
         print(f"[{index}/{len(prompts)}] candidate", flush=True)
         candidate = run_one(args.candidate, models["candidate"], prompt, args.max_tokens, args.timeout)
         ratio = difflib.SequenceMatcher(None, baseline["text"], candidate["text"]).ratio()
-        result["prompts"].append({
+        row = {
             "prompt": prompt,
             "baseline": baseline,
             "candidate": candidate,
             "exact_text_match": baseline["text"] == candidate["text"],
             "text_similarity": ratio,
-        })
+        }
+        if use_default_checks:
+            row["baseline_task_pass"] = default_task_pass(index - 1, baseline["text"])
+            row["candidate_task_pass"] = default_task_pass(index - 1, candidate["text"])
+        result["prompts"].append(row)
 
     b_rows = [x["baseline"] for x in result["prompts"]]
     c_rows = [x["candidate"] for x in result["prompts"]]
@@ -124,6 +143,14 @@ def main():
         "mean_text_similarity": statistics.mean(x["text_similarity"] for x in result["prompts"]),
         "note": "Text similarity is a regression screen, not a substitute for task-specific evaluation.",
     }
+    if use_default_checks:
+        result["quality"].update({
+            "baseline_task_pass_rate": statistics.mean(x["baseline_task_pass"] for x in result["prompts"]),
+            "candidate_task_pass_rate": statistics.mean(x["candidate_task_pass"] for x in result["prompts"]),
+            "candidate_not_worse_on_tasks": all(
+                x["candidate_task_pass"] or not x["baseline_task_pass"] for x in result["prompts"]
+            ),
+        })
 
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
     if args.out:
