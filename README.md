@@ -348,6 +348,12 @@ the model's `config.json`):
 | **Kimi K3** (Moonshot) | 2.8T / 104B | [`moonshotai/Kimi-K3`](https://huggingface.co/moonshotai/Kimi-K3) — original checkpoint, routed experts stay **native MXFP4** | `make -C c kimi_k3` | [kimi_k3.md](docs/kimi_k3.md) |
 | **OLMoE** (AI2) | 7B / 1B | converted with `c/tools/convert_olmoe_merged.py` | `make -C c olmoe` | — |
 
+An isolated CPU deployment profile for the official multimodal Gemma 4
+26B-A4B QAT Q4_0 GGUF is documented in
+[gemma4-26b-a4b-multimodal.md](docs/gemma4-26b-a4b-multimodal.md). This profile
+uses a separate current llama.cpp/libmtmd runtime and does not claim a native
+Colibri architecture implementation.
+
 Kimi K3 needs no conversion: its QAT-trained MXFP4 experts are streamed straight from
 the original Hugging Face shards, and the bf16 dense set is quantized at load time.
 Inkling ships int4 experts but **bf16 dense weights** (49.4 GB resident); on a host

@@ -1,0 +1,39 @@
+[Unit]
+Description=Gemma 4 26B-A4B QAT Q4_0 CPU multimodal inference
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/root/llama.cpp-gemma4/build/bin/llama-server \
+  --model /Volumes/Extend/gemma-4-26b-a4b-it-qat-q4_0/gemma-4-26B_q4_0-it.gguf \
+  --mmproj /Volumes/Extend/gemma-4-26b-a4b-it-qat-q4_0/gemma-4-26B-it-mmproj.gguf \
+  --no-mmproj-offload \
+  --device none \
+  --alias gemma-4-26b-a4b-it-qat-q4_0 \
+  --host 127.0.0.1 \
+  --port 18080 \
+  --ctx-size 131072 \
+  --n-predict 8192 \
+  --threads 24 \
+  --threads-batch 32 \
+  --batch-size 2048 \
+  --ubatch-size 512 \
+  --cache-type-k f16 \
+  --cache-type-v f16 \
+  --flash-attn on \
+  --numa distribute \
+  --load-mode mmap+mlock \
+  --jinja \
+  --parallel 1 \
+  --cont-batching
+ExecStartPost=/usr/local/libexec/warmup-gemma4
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=20min
+TimeoutStopSec=90s
+LimitMEMLOCK=infinity
+CPUAffinity=0-39
+
+[Install]
+WantedBy=multi-user.target
