@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="${ENGINE:-${SCRIPT_DIR}/../qwen36_serve}"
 PORT="${PORT:-18080}"
+HOST="${HOST:-127.0.0.1}"
 THREADS="${THREADS:-40}"
 CACHE_PER_LAYER="${CACHE_PER_LAYER:-256}"
 
@@ -31,6 +32,7 @@ export MALLOC_ARENA_MAX="4"
 
 export MODEL="${MODEL:-qwen3.6-35b-a3b-hauhau-q8-colibri-cpu}"
 export PORT
+export HOST
 export COLI_DENSE_I8="${COLI_DENSE_I8:-1}"
 export COLI_MOE_FUSED="${COLI_MOE_FUSED:-1}"
 export COLI_PRELOAD_ALL="${COLI_PRELOAD_ALL:-1}"

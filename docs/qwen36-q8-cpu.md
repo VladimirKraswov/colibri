@@ -36,9 +36,12 @@ OpenMP workers hot, disables every GPU visibility path, preloads all 10,240
 experts into RAM, and asks Linux to interleave pages across NUMA nodes:
 
 ```bash
-SNAP=/fast/qwen36-hauhau-colibri-q8 PORT=18080 \
+SNAP=/fast/qwen36-hauhau-colibri-q8 HOST=127.0.0.1 PORT=18080 \
   c/scripts/run_qwen36_q8_cpu.sh
 ```
+
+The server defaults to loopback. Set `HOST=0.0.0.0` only when a firewall or an
+authenticated reverse proxy protects the API.
 
 If the LXC cannot set a NUMA memory policy, configure interleaving/NUMA at the
 Proxmox container boundary or run the service in a VM with host CPU exposure.

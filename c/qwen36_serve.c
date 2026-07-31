@@ -311,6 +311,8 @@ int main(int argc, char **argv){
     int bits  = argc > 2 ? atoi(argv[2]) : 8;
     if (bits < 2 || bits > 8) { fprintf(stderr, "quant_bits must be 2..8 (got %d)\n", bits); return 1; }
     int port  = getenv("PORT") ? atoi(getenv("PORT")) : 8000;
+    const char *host = getenv("HOST");
+    if (!host || !*host) host = "127.0.0.1";
 
     /* load tokenizer (reuse engine loader) */
     {
@@ -328,8 +330,8 @@ int main(int argc, char **argv){
     quantize_dense_weights(&g_m);
     preload_all_experts(&g_m);
     double tload = now_s() - t0;
-    fprintf(stderr, "[serve] model resident in %.1fs | RSS %.2f GB | listening on http://0.0.0.0:%d  (PORT=%d)\n",
-            tload, rss_gb(), port, port);
+    fprintf(stderr, "[serve] model resident in %.1fs | RSS %.2f GB | listening on http://%s:%d  (PORT=%d)\n",
+            tload, rss_gb(), host, port, port);
     (void)hot_n;
 
     sock_t srv = socket(AF_INET, SOCK_STREAM, 0);
@@ -337,7 +339,10 @@ int main(int argc, char **argv){
     int opt = 1; setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const void*)&opt, sizeof opt);
     struct sockaddr_in addr; memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1){
+        fprintf(stderr, "HOST must be a numeric IPv4 address (got %s)\n", host);
+        SOCK_CLOSE(srv); return 1;
+    }
     addr.sin_port = htons((unsigned short)port);
     if (bind(srv, (struct sockaddr*)&addr, sizeof addr) == SOCK_INVALID){
         fprintf(stderr, "bind() to port %d failed (in use?)\n", port); SOCK_CLOSE(srv); return 1;
