@@ -54,6 +54,12 @@ F32 by default even when other dense matrices use in-memory row-Q8. Setting
 `COLI_ROUTER_I8=1` is an explicit ablation and should pass the quality gate
 before deployment.
 
+On F16C CPUs such as Broadwell-EP, attention Q/K/V and the large DeltaNet input
+projections remain F16 (`COLI_SENSITIVE_F16=1`, the default), matching the
+reference GGUF's precision choices. Output, shared-expert, routed-expert, and
+LM-head matrices use Q8. Set `COLI_SENSITIVE_F16=0` only as a measured speed
+ablation; it requantizes those sensitive projections to row-Q8.
+
 If the LXC cannot set a NUMA memory policy, configure interleaving/NUMA at the
 Proxmox container boundary or run the service in a VM with host CPU exposure.
 

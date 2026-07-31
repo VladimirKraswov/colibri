@@ -774,6 +774,66 @@ static void matmul_q(float *y, const float *x, const int8_t *q, const float *sca
 #endif
 }
 
+/* Sensitive dense projections in the reference Q8_K_P model are F16 rather
+ * than Q8. Broadwell-EP has F16C, so retain those matrices in half precision
+ * and convert eight values per vector while multiplying. This matches their
+ * source precision, halves traffic versus f32, and avoids the extra Q8 error. */
+#define HDW_MAX 512
+static struct { const float *w; uint16_t *h; int I, O; } g_hdw[HDW_MAX];
+static int g_hdw_n = 0;
+
+static int hdw_register(const float *W, int I, int O) {
+    if (!W || g_hdw_n >= HDW_MAX) return 0;
+#if defined(__F16C__)
+    uint16_t *h = malloc((size_t)O * I * sizeof(uint16_t));
+    if (!h) return 0;
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++) {
+        const float *src = W + (int64_t)o * I;
+        uint16_t *dst = h + (int64_t)o * I;
+        int i = 0;
+        for (; i + 8 <= I; i += 8) {
+            __m128i hv = _mm256_cvtps_ph(_mm256_loadu_ps(src + i), _MM_FROUND_TO_NEAREST_INT);
+            _mm_storeu_si128((__m128i *)(dst + i), hv);
+        }
+        for (; i < I; i++) dst[i] = (uint16_t)_cvtss_sh(src[i], _MM_FROUND_TO_NEAREST_INT);
+    }
+    g_hdw[g_hdw_n].w = W; g_hdw[g_hdw_n].h = h;
+    g_hdw[g_hdw_n].I = I; g_hdw[g_hdw_n].O = O; g_hdw_n++;
+    return 1;
+#else
+    (void)I; (void)O;
+    return 0;
+#endif
+}
+
+static void matmul_h(float *y, const float *x, const uint16_t *h, int I, int O) {
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++) {
+        const uint16_t *w = h + (int64_t)o * I;
+#if defined(__AVX2__) && defined(__F16C__) && defined(__FMA__)
+        __m256 a0 = _mm256_setzero_ps(), a1 = _mm256_setzero_ps();
+        int i = 0;
+        for (; i + 16 <= I; i += 16) {
+            __m128i h0 = _mm_loadu_si128((const __m128i *)(w + i));
+            __m128i h1 = _mm_loadu_si128((const __m128i *)(w + i + 8));
+            a0 = _mm256_fmadd_ps(_mm256_loadu_ps(x + i), _mm256_cvtph_ps(h0), a0);
+            a1 = _mm256_fmadd_ps(_mm256_loadu_ps(x + i + 8), _mm256_cvtph_ps(h1), a1);
+        }
+        a0 = _mm256_add_ps(a0, a1);
+        __m128 s = _mm_add_ps(_mm256_castps256_ps128(a0), _mm256_extractf128_ps(a0, 1));
+        s = _mm_add_ps(s, _mm_movehl_ps(s, s));
+        s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
+        float acc = _mm_cvtss_f32(s);
+        for (; i < I; i++) acc += x[i] * f16_to_f32(w[i]);
+#else
+        float acc = 0.f;
+        for (int i = 0; i < I; i++) acc += x[i] * f16_to_f32(w[i]);
+#endif
+        y[o] = acc;
+    }
+}
+
 /* One row of the same q8-weight/f32-activation GEMV used by matmul_q().  Keeping
  * this as a row primitive lets the MoE schedule all (expert,row) pairs in one
  * OpenMP region instead of opening a region for every expert projection. */
@@ -857,6 +917,10 @@ static void qdw_register(const float *W, int I, int O){
 static void matmul_d(float *y, const float *x, const float *W, int S, int I, int O){
     for (int i = 0; i < g_qdw_n; i++) if (g_qdw[i].w == W && g_qdw[i].I == I) {
         for (int s = 0; s < S; s++) matmul_q(y+(int64_t)s*O, x+(int64_t)s*I, g_qdw[i].q, g_qdw[i].sc, I, O);
+        return;
+    }
+    for (int i = 0; i < g_hdw_n; i++) if (g_hdw[i].w == W && g_hdw[i].I == I) {
+        for (int s = 0; s < S; s++) matmul_h(y+(int64_t)s*O, x+(int64_t)s*I, g_hdw[i].h, I, O);
         return;
     }
     matmul(y, x, W, S, I, O);
@@ -2043,17 +2107,30 @@ static void quantize_dense_weights(Model *m) {
      * over their Q8 copies. Keep parity by default; COLI_ROUTER_I8=1 is an
      * explicit speed/quality experiment. */
     int router_i8 = getenv("COLI_ROUTER_I8") && atoi(getenv("COLI_ROUTER_I8")) != 0;
+    const char *sf = getenv("COLI_SENSITIVE_F16");
+    int sensitive_f16 = !(sf && atoi(sf) == 0);
     int q_out = qc->q_heads * qc->q_head_dim;
     int kv_out = qc->kv_heads * qc->k_head_dim;
     for (int i = 0; i < qc->n_layers; i++) {
         Layer *l = &m->L[i];
-        qdw_register(l->q, D2, q_out); qdw_register(l->k, D2, kv_out);
-        qdw_register(l->v, D2, kv_out); qdw_register(l->o, qc->o_in, D2);
+        if (sensitive_f16) {
+            hdw_register(l->q, D2, q_out); hdw_register(l->k, D2, kv_out);
+            hdw_register(l->v, D2, kv_out);
+        } else {
+            qdw_register(l->q, D2, q_out); qdw_register(l->k, D2, kv_out);
+            qdw_register(l->v, D2, kv_out);
+        }
+        qdw_register(l->o, qc->o_in, D2);
         if (router_i8) qdw_register(l->gate, D2, qc->n_experts);
         qdw_register(l->sh_g, D2, qc->shared_inter); qdw_register(l->sh_u, D2, qc->shared_inter);
         qdw_register(l->sh_d, qc->shared_inter, D2);
-        qdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
-        qdw_register(l->dn_z, D2, qc->dn_vheads * qc->dn_vdim);
+        if (sensitive_f16) {
+            hdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
+            hdw_register(l->dn_z, D2, qc->dn_vheads * qc->dn_vdim);
+        } else {
+            qdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
+            qdw_register(l->dn_z, D2, qc->dn_vheads * qc->dn_vdim);
+        }
         qdw_register(l->dn_out, qc->dn_vheads * qc->dn_vdim, D2);
     }
     qdw_register(m->lm_head, D2, qc->vocab);
@@ -2065,9 +2142,15 @@ static void quantize_dense_weights(Model *m) {
             freed += (double)g_qdw[i].I * g_qdw[i].O * sizeof(float);
             free((void*)g_qdw[i].w);
         }
+        for (int i = 0; i < g_hdw_n; i++) {
+            freed += (double)g_hdw[i].I * g_hdw[i].O * sizeof(float);
+            free((void*)g_hdw[i].w);
+        }
     }
-    fprintf(stderr, "[dense-i8] %d matrices quantized in %.1f s, %.1f GB f32 freed | router=%s\n",
-            g_qdw_n, now_s()-tq, freed/1073741824.0, router_i8 ? "q8" : "f32");
+    fprintf(stderr, "[dense] q8=%d f16=%d in %.1f s, %.1f GB f32 freed | router=%s sensitive=%s\n",
+            g_qdw_n, g_hdw_n, now_s()-tq, freed/1073741824.0,
+            router_i8 ? "q8" : "f32",
+            g_hdw_n ? "f16" : (sensitive_f16 ? "f32(no-f16c)" : "q8"));
 }
 
 #ifndef QWEN36_NO_MAIN

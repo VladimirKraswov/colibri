@@ -98,6 +98,36 @@ int main(void) {
         }
     }
 
-    puts("qwen36 q8 fused kernels: PASS");
+#if defined(__F16C__)
+    {
+        enum { HI = 64, HO = 24 };
+        float hx[HI], hw[HO][HI], href[HO], hgot[HO];
+        for (int i = 0; i < HI; i++) hx[i] = rng_f32();
+        for (int o = 0; o < HO; o++)
+            for (int i = 0; i < HI; i++) hw[o][i] = rng_f32();
+        int before = g_hdw_n;
+        if (!hdw_register(&hw[0][0], HI, HO) || g_hdw_n != before + 1) {
+            fprintf(stderr, "F16C dense registration failed\n");
+            return 1;
+        }
+        const uint16_t *rounded = g_hdw[before].h;
+        for (int o = 0; o < HO; o++) {
+            float acc = 0.f;
+            for (int i = 0; i < HI; i++)
+                acc += hx[i] * f16_to_f32(rounded[(int64_t)o * HI + i]);
+            href[o] = acc;
+        }
+        matmul_d(hgot, hx, &hw[0][0], 1, HI, HO);
+        for (int o = 0; o < HO; o++) {
+            if (!close_enough(href[o], hgot[o])) {
+                fprintf(stderr, "F16C dense mismatch o=%d ref=%g got=%g\n",
+                        o, href[o], hgot[o]);
+                return 1;
+            }
+        }
+    }
+#endif
+
+    puts("qwen36 q8/f16 CPU kernels: PASS");
     return 0;
 }
