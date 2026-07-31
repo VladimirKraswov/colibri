@@ -32,6 +32,10 @@ tuned 20-worker configuration while allowing the process to use all 40
 physical CPU cores and interleaves memory across both NUMA nodes. The launcher
 sets empty CUDA/HIP visibility variables and the C server links no GPU backend.
 
+`c/scripts/nginx-llm-studio-kat.conf` keeps KAT and the original llama.cpp
+service on separate URL prefixes. Its retired Colibri route returns HTTP 410
+instead of silently forwarding a saved conversation to the replacement model.
+
 After a successful conversion, remove the temporary Hugging Face download
 directory. The converted Q8 container is self-contained and does not require
 the BF16 shards or an access token at runtime.
