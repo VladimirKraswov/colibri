@@ -16,7 +16,10 @@
  * GLM-5.2 in 15 GB.
  *
  * Env vars (inherited from olmoe.c): PILOT, HOT, WARMUP, WIDE, SMOOTH, CONF_LIMIT.
- * Plus: SNAP=<dir>, and argv: qwen36 <cache/layer> <ebits> [ref.json] [PPL=1].
+ * Qwen3.6 CPU tuning: COLI_MOE_FUSED=0 disables the AVX2 fused top-k path;
+ * COLI_PRELOAD_ALL=1 loads every expert before inference (requires cache/layer >=
+ * num_experts and enough RAM). Plus: SNAP=<dir>, and argv:
+ * qwen36 <cache/layer> <ebits> [ref.json] [PPL=1].
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -312,7 +315,7 @@ static int json_escape(const unsigned char *s, int n, char *out, int outsz){
     int o = 0;
     for (int i=0;i<n;i++){
         unsigned char c = s[i];
-        if (c == '"'){ if(o+2<outsz){ out[o++]='"'; out[o++]='"'; } }
+        if (c == '"'){ if(o+2<outsz){ out[o++]='\\'; out[o++]='"'; } }
         else if (c == '\\'){ if(o+2<outsz){ out[o++]='\\'; out[o++]='\\'; } }
         else if (c == '\n'){ if(o+2<outsz){ out[o++]='\\'; out[o++]='n'; } }
         else if (c == '\r'){ if(o+2<outsz){ out[o++]='\\'; out[o++]='r'; } }
@@ -326,7 +329,7 @@ static int json_escape(const unsigned char *s, int n, char *out, int outsz){
     return o;
 }
 
-/* Append b[0..n) into buf/*bn, extract as many LEADING complete UTF-8
+/* Append b[0..n) into buf (current length *bn), extract complete UTF-8
  * codepoints as possible into out[0..*outn) (max 255). Trailing partial
  * sequence stays in buf. Returns bytes written to out. */
 static int utf8_drain(unsigned char *buf, int *bn, const unsigned char *b, int n, unsigned char *out, int *outn){
@@ -488,7 +491,10 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
     double total = now_s() - g_gen_t0;
     if (g_ttft < 0) g_ttft = total;   /* non-streaming: all tokens arrive at once */
     double gen_t = total - g_ttft;
-    double tps = (gen_t > 1e-6 && n_new > 1) ? n_new / gen_t : (total > 0 ? n_new / total : 0.0);
+    /* TTFT ends when the first token is selected, so only n_new-1 tokens belong
+     * to the post-TTFT decode interval. */
+    double tps = (gen_t > 1e-6 && n_new > 1) ? (n_new - 1) / gen_t
+                                             : (total > 0 ? n_new / total : 0.0);
     if (stream){
         if (g_sbn > 0){
             unsigned char chunk[16]; int cn = 0;
@@ -536,7 +542,7 @@ typedef struct {
     int q_head_dim;                         /* q per-head total = head_dim*2 when attn_output_gate */
     int k_head_dim, v_head_dim, o_in;       /* o_in = q_heads*head_dim (o_proj input) */
     int rope_dim, rotary_dim;               /* rotary_dim = actual rotated dims (head_dim*partial_rotary_factor) */
-    int n_experts, topk, inter, shared_inter, vocab;
+    int n_experts, topk, inter, shared_inter, vocab, eos_id;
     int n_group, topk_group;
     float theta, eps, partial_rotary_factor;
     int norm_topk, has_qk_norm, has_bias, attn_output_gate;
@@ -748,6 +754,65 @@ static void matmul_q(float *y, const float *x, const int8_t *q, const float *sca
 #endif
 }
 
+/* One row of the same q8-weight/f32-activation GEMV used by matmul_q().  Keeping
+ * this as a row primitive lets the MoE schedule all (expert,row) pairs in one
+ * OpenMP region instead of opening a region for every expert projection. */
+static inline float matmul_q_row_f32(const float *x, const int8_t *w, int I) {
+#if defined(__AVX2__) && defined(__FMA__)
+    __m256 a0 = _mm256_setzero_ps(), a1 = _mm256_setzero_ps();
+    __m256 a2 = _mm256_setzero_ps(), a3 = _mm256_setzero_ps();
+    int i = 0;
+    for (; i + 32 <= I; i += 32) {
+        __m128i b0 = _mm_loadu_si128((const __m128i*)(w + i));
+        __m128i b1 = _mm_loadu_si128((const __m128i*)(w + i + 16));
+        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(x+i),    _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(b0)), a0);
+        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(x+i+8),  _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_srli_si128(b0,8))), a1);
+        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(x+i+16), _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(b1)), a2);
+        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(x+i+24), _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_srli_si128(b1,8))), a3);
+    }
+    a0 = _mm256_add_ps(_mm256_add_ps(a0,a1), _mm256_add_ps(a2,a3));
+    __m128 s = _mm_add_ps(_mm256_castps256_ps128(a0), _mm256_extractf128_ps(a0,1));
+    s = _mm_add_ps(s, _mm_movehl_ps(s,s));
+    s = _mm_add_ss(s, _mm_shuffle_ps(s,s,1));
+    float acc = _mm_cvtss_f32(s);
+    for (; i < I; i++) acc += x[i] * (float)w[i];
+    return acc;
+#else
+    float acc = 0.f;
+    for (int i = 0; i < I; i++) acc += x[i] * (float)w[i];
+    return acc;
+#endif
+}
+
+/* Batched independent q8 GEMVs. xs/q/sc are arrays of n pointers; y stores
+ * n contiguous O-row outputs. The arithmetic inside each row is identical to
+ * matmul_q's x86 path, while the single flattened loop removes 3*K OpenMP
+ * fork/join cycles per MoE layer. */
+static void matmul_q_many(float *y, const float *const *xs,
+                          const int8_t *const *q, const float *const *sc,
+                          int n, int I, int O) {
+    int64_t rows = (int64_t)n * O;
+    #pragma omp parallel for schedule(static)
+    for (int64_t r = 0; r < rows; r++) {
+        int k = (int)(r / O), o = (int)(r - (int64_t)k * O);
+        const int8_t *w = q[k] + (int64_t)o * I;
+        y[r] = matmul_q_row_f32(xs[k], w, I) * sc[k][o];
+    }
+}
+
+static int moe_fused_on(void) {
+    static int v = -1;
+    if (v < 0) {
+        const char *e = getenv("COLI_MOE_FUSED");
+#if defined(__AVX2__) && defined(__FMA__)
+        v = !(e && *e == '0');
+#else
+        v = (e && *e == '1');
+#endif
+    }
+    return v;
+}
+
 /* ---- Dense int8: per-row quantized copies of the large f32 matrices.
  * matmul_d dispatches via pointer lookup to matmul_q; COLI_DENSE_I8=0 falls
  * back to f32 (reference path for parity tests). ~4x less memory traffic. */
@@ -811,6 +876,8 @@ static void load_cfg(Cfg *c, const char *snap) {
     c->hidden    = (int)req_num(r,"hidden_size");
     c->n_layers  = (int)req_num(r,"num_hidden_layers");
     c->vocab     = (int)req_num(r,"vocab_size");
+    { jval *eos = json_get(r,"eos_token_id");
+      c->eos_id = (eos && eos->t == J_NUM) ? (int)eos->num : -1; }
     c->eps       = (float)req_num(r,"rms_norm_eps");
     jval *th = json_get(r,"rope_theta"); c->theta = th ? (float)th->num : 10000.f;
     free(buf); free(arena);
@@ -1134,6 +1201,40 @@ static void expert_get(Model *m, int layer, int eid, Slot **out) {
     *out = s; pthread_mutex_unlock(&g_pilot_mx);
 }
 
+/* On a large-RAM CPU server, paging a new set of experts during decode is pure
+ * overhead. With cap >= n_experts this eagerly fills the per-layer caches once,
+ * then resets the hit/miss counters so generation metrics describe inference,
+ * not warm-up. Launch under `numactl --interleave=all` on multi-socket systems
+ * to distribute the 32+ GB Q8 expert working set across memory controllers. */
+static void preload_all_experts(Model *m) {
+    const char *ev = getenv("COLI_PRELOAD_ALL");
+    if (!ev || atoi(ev) == 0) return;
+    Cfg *c = &m->c;
+    for (int l = 0; l < c->n_layers; l++) {
+        if (m->cache[l].cap < c->n_experts) {
+            fprintf(stderr, "[preload] disabled: cache/layer=%d, need at least %d\n",
+                    m->cache[l].cap, c->n_experts);
+            return;
+        }
+    }
+    double t0 = now_s();
+    fprintf(stderr, "[preload] loading %d experts x %d layers into RAM...\n",
+            c->n_experts, c->n_layers);
+    for (int l = 0; l < c->n_layers; l++) {
+        for (int e = 0; e < c->n_experts; e++) {
+            Slot *slot = NULL;
+            expert_get(m, l, e, &slot);
+            (void)slot;
+        }
+        if ((l + 1) % 5 == 0 || l + 1 == c->n_layers)
+            fprintf(stderr, "[preload] %d/%d layers | RSS %.2f GB\n",
+                    l + 1, c->n_layers, rss_gb());
+    }
+    m->hits = m->miss = 0;
+    fprintf(stderr, "[preload] complete in %.1f s | RSS %.2f GB\n",
+            now_s() - t0, rss_gb());
+}
+
 static void pin_hot_experts(Model *m) {
     Cfg *c = &m->c;
     if (m->hot_n <= 0 || m->hot_pinned) return;
@@ -1334,8 +1435,11 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out) {
         for (int s = 0; s < S; s++) { float *pr = logits + (int64_t)s*E; for (int e = 0; e < E; e++) pr[e] += l->gate_bias[e]; }
     }
     memset(out, 0, (int64_t)S*D*sizeof(float));
-    float *g = falloc(I), *u = falloc(I), *hh = falloc(D);
+    float *gu = falloc(2*I), *g = gu, *u = gu + I, *hh = falloc(D);
     float *sh = falloc(I), *shu = falloc(I), *shd = falloc(D);  /* shared expert scratch */
+    int use_fused = moe_fused_on() && K > 1;
+    float *all_gu = use_fused ? falloc((int64_t)K * 2 * I) : NULL;
+    float *all_hh = use_fused ? falloc((int64_t)K * D) : NULL;
     for (int s = 0; s < S; s++) {
         float *pr = logits + (int64_t)s*E;
         if (m->momentum_logits && m->pilot_smooth > 0.f) {
@@ -1386,11 +1490,37 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out) {
             for (int kk = 0; kk < K; kk++) if (idx[kk] >= 0) freq_l[idx[kk]]++;
         }
         const float *xs = x + (int64_t)s*D;
-        {
+        if (use_fused) {
+            Slot *sel[256];
+            const float *x_gu[256], *x_down[256];
+            const int8_t *q_gu[256], *q_down[256];
+            const float *sc_gu[256], *sc_down[256];
+            for (int kk = 0; kk < K; kk++) {
+                expert_get(m, layer, idx[kk], &sel[kk]);
+                x_gu[kk] = xs; q_gu[kk] = sel[kk]->g; sc_gu[kk] = sel[kk]->gs;
+            }
+            /* gate and up weights/scales are adjacent in every merged expert. */
+            matmul_q_many(all_gu, x_gu, q_gu, sc_gu, K, D, 2*I);
+            for (int kk = 0; kk < K; kk++) {
+                float *kg = all_gu + (int64_t)kk * 2 * I;
+                float *ku = kg + I;
+                for (int i = 0; i < I; i++) {
+                    float gv = kg[i]; kg[i] = (gv / (1.f + expf(-gv))) * ku[i];
+                }
+                x_down[kk] = kg; q_down[kk] = sel[kk]->d; sc_down[kk] = sel[kk]->ds;
+            }
+            matmul_q_many(all_hh, x_down, q_down, sc_down, K, I, D);
+            float *os = out + (int64_t)s*D;
+            for (int kk = 0; kk < K; kk++) {
+                const float *kh = all_hh + (int64_t)kk * D;
+                float w = val[kk];
+                for (int d = 0; d < D; d++) os[d] += w * kh[d];
+            }
+        } else {
             for (int kk = 0; kk < K; kk++) {
                 Slot *e; expert_get(m, layer, idx[kk], &e);
-                matmul_q(g, xs, e->g, e->gs, D, I);
-                matmul_q(u, xs, e->u, e->us, D, I);
+                /* merged_weight layout is g|u|d, so g+u is one 2I-row GEMV. */
+                matmul_q(gu, xs, e->g, e->gs, D, 2*I);
                 for (int i = 0; i < I; i++) { float gv = g[i]; g[i] = (gv / (1.f + expf(-gv))) * u[i]; }
                 matmul_q(hh, g, e->d, e->ds, I, D);
                 float w = val[kk];
@@ -1415,7 +1545,8 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out) {
         for (int d = 0; d < D; d++) os[d] += sgate * shd[d];
         if (tm_on()) tm_add(S, 3, tm_now()-_ts);
     }
-    free(logits); free(g); free(u); free(hh); free(sh); free(shu); free(shd);
+    free(logits); free(gu); free(hh); free(sh); free(shu); free(shd);
+    free(all_gu); free(all_hh);
 }
 
 /* Gated DeltaNet (linear_attention) forward — recurrent gated-delta-rule.
@@ -1779,7 +1910,7 @@ static void ensure_kv(Model *m){
     m->kv_cap = m->max_t;
 }
 
-static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
+static int generate(Model *m, const int *prompt, int np, int n_new, int *out) {
     Cfg *c = &m->c;
     m->max_t = np + n_new;
     reset_recurrent(m);
@@ -1792,6 +1923,14 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
         int best = 0; float bv = logit[0];
         for (int i = 1; i < c->vocab; i++) if (logit[i] > bv) { bv = logit[i]; best = i; }
         if (s == 0 && g_ttft < 0) g_ttft = now_s() - g_gen_t0;   /* record TTFT */
+        if (best == c->eos_id) {
+            if (getenv("DUMP")) {
+                g_last_logit = malloc((size_t)c->vocab * sizeof(float));
+                memcpy(g_last_logit, logit, (size_t)c->vocab * sizeof(float));
+            }
+            free(logit);
+            break;
+        }
         if (g_stream) { stream_token(best); fflush(stdout); }
         if (s == n_new - 1) {
             if (getenv("DUMP")) {
@@ -1806,6 +1945,7 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
           logit = step(m, &one, 1, len - 1);
           if (tm_on()) g_tm_step += tm_now()-_s0; }
     }
+    return len - np;
 }
 
 static int tf_nll(Model *m, const int *full, int nfull, int np, double *nll_out) {
@@ -1836,6 +1976,40 @@ static int *read_int_array(jval *o, const char *key, int *n_out) {
     int *r = malloc(a->len * sizeof(int));
     for (int i = 0; i < a->len; i++) r[i] = (int)a->kids[i]->num;
     *n_out = a->len; return r;
+}
+
+/* Convert the large resident f32 matrices to the engine's row-wise q8 form.
+ * Kept in one helper so the CLI and the long-running HTTP server use exactly
+ * the same quality/performance path. */
+static void quantize_dense_weights(Model *m) {
+    if (!dense_i8_on()) return;
+    double tq = now_s();
+    Cfg *qc = &m->c; int D2 = qc->hidden;
+    int q_out = qc->q_heads * qc->q_head_dim;
+    int kv_out = qc->kv_heads * qc->k_head_dim;
+    for (int i = 0; i < qc->n_layers; i++) {
+        Layer *l = &m->L[i];
+        qdw_register(l->q, D2, q_out); qdw_register(l->k, D2, kv_out);
+        qdw_register(l->v, D2, kv_out); qdw_register(l->o, qc->o_in, D2);
+        qdw_register(l->gate, D2, qc->n_experts);
+        qdw_register(l->sh_g, D2, qc->shared_inter); qdw_register(l->sh_u, D2, qc->shared_inter);
+        qdw_register(l->sh_d, qc->shared_inter, D2);
+        qdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
+        qdw_register(l->dn_z, D2, qc->dn_vheads * qc->dn_vdim);
+        qdw_register(l->dn_out, qc->dn_vheads * qc->dn_vdim, D2);
+    }
+    qdw_register(m->lm_head, D2, qc->vocab);
+    /* Pointers remain lookup keys in matmul_d; their f32 storage is no longer
+     * dereferenced after successful registration. */
+    double freed = 0;
+    if (!getenv("COLI_KEEP_F32")) {
+        for (int i = 0; i < g_qdw_n; i++) {
+            freed += (double)g_qdw[i].I * g_qdw[i].O * sizeof(float);
+            free((void*)g_qdw[i].w);
+        }
+    }
+    fprintf(stderr, "[dense-i8] %d matrices quantized in %.1f s, %.1f GB f32 freed\n",
+            g_qdw_n, now_s()-tq, freed/1073741824.0);
 }
 
 #ifndef QWEN36_NO_MAIN
@@ -1900,36 +2074,9 @@ int main(int argc, char **argv) {
 
     Model m; model_init(&m, snap, cap, bits);
     fprintf(stderr, "resident weights loaded in %.1fs | RSS after load: %.2f GB\n", m.dense_load_s, rss_gb());
-    /* quantize the large dense matrices to int8 (COLI_DENSE_I8=0 disables) */
-    if (dense_i8_on()) {
-        double tq = now_s();
-        Cfg *qc = &m.c; int D2 = qc->hidden;
-        int q_out = qc->q_heads * qc->q_head_dim, kv_out = qc->kv_heads * qc->k_head_dim;
-        for (int i = 0; i < qc->n_layers; i++) {
-            Layer *l = &m.L[i];
-            qdw_register(l->q, D2, q_out); qdw_register(l->k, D2, kv_out);
-            qdw_register(l->v, D2, kv_out); qdw_register(l->o, qc->o_in, D2);
-            qdw_register(l->gate, D2, qc->n_experts);
-            qdw_register(l->sh_g, D2, qc->shared_inter); qdw_register(l->sh_u, D2, qc->shared_inter);
-            qdw_register(l->sh_d, qc->shared_inter, D2);
-            qdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
-            qdw_register(l->dn_z, D2, qc->dn_vheads * qc->dn_vdim);
-            qdw_register(l->dn_out, qc->dn_vheads * qc->dn_vdim, D2);
-        }
-        qdw_register(m.lm_head, D2, qc->vocab);
-        /* Free the f32 originals -- the pointers only serve as lookup keys in
-         * matmul_d from here on (never dereferenced again).
-         * COLI_KEEP_F32=1 keeps them (debug). */
-        double freed = 0;
-        if (!getenv("COLI_KEEP_F32")) {
-            for (int i = 0; i < g_qdw_n; i++) {
-                freed += (double)g_qdw[i].I * g_qdw[i].O * sizeof(float);
-                free((void*)g_qdw[i].w);
-            }
-        }
-        fprintf(stderr, "[dense-i8] %d matrices quantized in %.1f s, %.1f GB f32 freed\n",
-                g_qdw_n, now_s()-tq, freed/1073741824.0);
-    }
+    quantize_dense_weights(&m);
+
+    preload_all_experts(&m);
 
 
     if (is_ref && getenv("PPL") && atoi(getenv("PPL")) == 1) {
@@ -1966,7 +2113,7 @@ int main(int argc, char **argv) {
         }
     }
     double t = now_s();
-    generate(&m, prompt, np, n_new, out);
+    int n_done = generate(&m, prompt, np, n_new, out);
     double dt = now_s() - t;
 
     /* DUMP=<path>: write last-token logits (raw float32, vocab) for a torch-free
@@ -1982,18 +2129,18 @@ int main(int argc, char **argv) {
     if (is_ref) {
         int match = 0;
         printf("\nReference: ");  for (int i=np;i<nfull;i++) printf("%d ", full[i]);
-        printf("\nC engine : ");  for (int i=np;i<nfull;i++) { printf("%d ", out[i]); if (out[i]==full[i]) match++; }
-        if (g_tok) { printf("Text      : "); print_decoded(out, np, nfull); printf("\n"); }
-        printf("\nMatching tokens: %d/%d\n", match, n_new);
+        printf("\nC engine : ");  for (int i=np;i<np+n_done;i++) { printf("%d ", out[i]); if (i<nfull && out[i]==full[i]) match++; }
+        if (g_tok) { printf("Text      : "); print_decoded(out, np, np+n_done); printf("\n"); }
+        printf("\nMatching tokens: %d/%d (generated %d)\n", match, n_new, n_done);
     } else {
     if (g_openai) {
-        emit_openai_result(out, np, n_new, g_stream);
+        emit_openai_result(out, np, n_done, g_stream);
     } else if (g_stream) {
         stream_flush(); fprintf(stderr, "\n");
     } else {
-        fprintf(stderr, "\nGenerated (%d new tokens):\n", n_new);
-        if (g_tok) { fprintf(stderr, "Text      : "); print_decoded(out, np, np+n_new); fprintf(stderr, "\n"); }
-        else { fprintf(stderr, "Ids       : "); for (int i=np;i<np+n_new;i++) fprintf(stderr, "%d ", out[i]); fprintf(stderr, "\n"); }
+        fprintf(stderr, "\nGenerated (%d new tokens):\n", n_done);
+        if (g_tok) { fprintf(stderr, "Text      : "); print_decoded(out, np, np+n_done); fprintf(stderr, "\n"); }
+        else { fprintf(stderr, "Ids       : "); for (int i=np;i<np+n_done;i++) fprintf(stderr, "%d ", out[i]); fprintf(stderr, "\n"); }
     }
     }
     double tot = m.hits + m.miss;
@@ -2002,7 +2149,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nPEAK RSS: %.2f GB\n", rss_gb());
     fprintf(stderr, "Expert cache hit rate: %.1f%% (hit=%llu miss=%llu)\n", tot?100.0*m.hits/tot:0.0,
            (unsigned long long)m.hits, (unsigned long long)m.miss);
-    fprintf(stderr, "Speed: %.2f tok/s (%.1fs for %d tokens)\n", n_new/dt, dt, n_new);
+    fprintf(stderr, "Speed: %.2f tok/s (%.1fs for %d tokens)\n", n_done/dt, dt, n_done);
     free(buf); free(arena);
     return 0;
 }
