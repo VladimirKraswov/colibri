@@ -156,6 +156,16 @@ static int try_special(const char *s,int i,int n,int *id_out){
     }
     *id_out=best_id; return best_len;
 }
+static void add_special_from_vocab(const char *piece){
+    int id=smap_get(&g_rev,piece); if(id<0) return;
+    for(int k=0;k<g_nspecial;k++) if(g_sp_id[k]==id || strcmp(g_sp_str[k],piece)==0) return;
+    int next=g_nspecial+1;
+    g_sp_str=realloc(g_sp_str,(size_t)next*sizeof(char*));
+    g_sp_id=realloc(g_sp_id,(size_t)next*sizeof(int));
+    g_sp_len=realloc(g_sp_len,(size_t)next*sizeof(int));
+    g_sp_str[g_nspecial]=strdup(piece); g_sp_id[g_nspecial]=id;
+    g_sp_len[g_nspecial]=(int)strlen(piece); g_nspecial=next;
+}
 /* Pre-tokenize splitter, mirrors the HF/Qwen regex alternation:
  *   (?i:'s|'t|'re|'ve|'m|'ll|'d) | [^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+ | \p{N}
  *   | ?[^\s\p{L}\p{M}\p{N}]+[\r\n]* | \s*[\r\n]+ | \s+(?!\S) | \s+
@@ -329,8 +339,15 @@ static void load_tokenizer(const char *path){
                 jval *z=normalizers->kids[k]; if(!z||z->t!=J_OBJ) continue;
                 const char *zt=jstr(z,"type"),*content=jstr(z,"content");
                 jval *pattern=json_get(z,"pattern"); const char *source=pattern?jstr(pattern,"String"):NULL;
+                /* Some Qwen tokenizer.json revisions carry a legacy
+                 * space->U+2581 normalizer next to a GPT-2 ByteLevel vocab.
+                 * Applying it literally produces âĸ/ģ byte tokens, while both
+                 * llama.cpp and the vocab's merged words use Ġ (byte 0x20).
+                 * Activate the replacement only when U+2581 itself is present
+                 * in the vocabulary; otherwise ByteLevel's space is canonical. */
                 if(zt&&strcmp(zt,"Replace")==0 && source&&strcmp(source," ")==0 &&
-                   content&&strcmp(content,"\xE2\x96\x81")==0) g_normalize_space_marker=1;
+                   content&&strcmp(content,"\xE2\x96\x81")==0 && smap_get(&g_rev,content)>=0)
+                    g_normalize_space_marker=1;
             }
         }
     }
@@ -348,6 +365,13 @@ static void load_tokenizer(const char *path){
             g_sp_len[k] = (int)strlen(g_sp_str[k]);
         }
     }
+    /* The Qwen3.6 file marks only endoftext/im_end as added special tokens,
+     * although its own chat template emits these control tokens from vocab.
+     * Isolate them before normalization/BPE just as llama.cpp does. */
+    add_special_from_vocab("<|im_start|>");
+    add_special_from_vocab("<|im_end|>");
+    add_special_from_vocab("<think>");
+    add_special_from_vocab("</think>");
     build_byte_sym();
 
     fprintf(stderr, "[tok] loaded %d pieces (max id %d) from %s | merges=%d regex=%d space_marker=%d\n",
