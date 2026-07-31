@@ -12,7 +12,10 @@ import shutil
 FILES = [
     "olmoe", "olmoe.exe",
     "glm", "glm.exe",
+    "qwen36", "qwen36.exe",
+    "qwen36_serve", "qwen36_serve.exe",
     "iobench", "iobench.exe",
+    "tools/bench_qwen36_avx2", "tools/bench_qwen36_avx2.exe",
     "backend_cuda.o", "backend_loader.o",
     "backend_cuda_test", "backend_cuda_test.exe",
     "backend_cuda_bench", "backend_cuda_bench.exe",
