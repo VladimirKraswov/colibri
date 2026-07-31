@@ -2037,13 +2037,19 @@ static void quantize_dense_weights(Model *m) {
     if (!dense_i8_on()) return;
     double tq = now_s();
     Cfg *qc = &m->c; int D2 = qc->hidden;
+    /* The reference Q8_K_P artifact deliberately keeps the MoE router in F32.
+     * A tiny router perturbation can select a different expert and amplify far
+     * beyond its own GEMV error, while retaining all routers costs only ~60 MiB
+     * over their Q8 copies. Keep parity by default; COLI_ROUTER_I8=1 is an
+     * explicit speed/quality experiment. */
+    int router_i8 = getenv("COLI_ROUTER_I8") && atoi(getenv("COLI_ROUTER_I8")) != 0;
     int q_out = qc->q_heads * qc->q_head_dim;
     int kv_out = qc->kv_heads * qc->k_head_dim;
     for (int i = 0; i < qc->n_layers; i++) {
         Layer *l = &m->L[i];
         qdw_register(l->q, D2, q_out); qdw_register(l->k, D2, kv_out);
         qdw_register(l->v, D2, kv_out); qdw_register(l->o, qc->o_in, D2);
-        qdw_register(l->gate, D2, qc->n_experts);
+        if (router_i8) qdw_register(l->gate, D2, qc->n_experts);
         qdw_register(l->sh_g, D2, qc->shared_inter); qdw_register(l->sh_u, D2, qc->shared_inter);
         qdw_register(l->sh_d, qc->shared_inter, D2);
         qdw_register(l->dn_qkv, D2, qc->dn_conv_dim);
@@ -2060,8 +2066,8 @@ static void quantize_dense_weights(Model *m) {
             free((void*)g_qdw[i].w);
         }
     }
-    fprintf(stderr, "[dense-i8] %d matrices quantized in %.1f s, %.1f GB f32 freed\n",
-            g_qdw_n, now_s()-tq, freed/1073741824.0);
+    fprintf(stderr, "[dense-i8] %d matrices quantized in %.1f s, %.1f GB f32 freed | router=%s\n",
+            g_qdw_n, now_s()-tq, freed/1073741824.0, router_i8 ? "q8" : "f32");
 }
 
 #ifndef QWEN36_NO_MAIN

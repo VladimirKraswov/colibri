@@ -49,6 +49,11 @@ The OpenAI chat endpoint follows the model's default thinking template. Send
 `"chat_template_kwargs":{"enable_thinking":false}` (or top-level
 `"enable_thinking":false`) to use Qwen's explicit no-thinking prefix.
 
+For quality parity with the reference `Q8_K_P` layout, the MoE router remains
+F32 by default even when other dense matrices use in-memory row-Q8. Setting
+`COLI_ROUTER_I8=1` is an explicit ablation and should pass the quality gate
+before deployment.
+
 If the LXC cannot set a NUMA memory policy, configure interleaving/NUMA at the
 Proxmox container boundary or run the service in a VM with host CPU exposure.
 
