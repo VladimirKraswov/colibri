@@ -77,6 +77,8 @@ static char  byte_sym_utf8[256][8]; /* byte -> UTF-8 of mapped codepoint */
 static short g_unmap[512];          /* mapped codepoint -> original byte (-1 = unused) */
 static int   g_nspecial = 0;
 static char **g_sp_str = NULL; static int *g_sp_id = NULL; static int *g_sp_len = NULL;
+static int   g_pretok_use_regex = 1;
+static int   g_normalize_space_marker = 0;
 
 static const char *jstr(jval *o,const char *k){ jval *v=json_get(o,k); return (v&&v->t==J_STR)?v->str:NULL; }
 static double jnum(jval *o,const char *k){ jval *v=json_get(o,k); return (v&&v->t==J_NUM)?v->num:0; }
@@ -212,14 +214,51 @@ static void bpe_piece(const char *piece,int len,int **ids,int *n,int *cap){
     for(int k=0;k<sc;k++){ int id=smap_get(&g_rev,syms[k]); if(id<0) id=0; push_id(ids,n,cap,id); free(syms[k]); }
     free(syms);
 }
+
+/* Apply the tokenizer.json normalizer that Qwen3.6 ships before ByteLevel.
+ * Its pipeline replaces ASCII space with U+2581 (LOWER ONE EIGHTH BLOCK),
+ * then applies NFC. Chat/API input is already valid UTF-8 and normally NFC;
+ * handling the explicit replacement here is what makes the C BPE byte stream
+ * match tokenizers/llama.cpp. */
+static char *normalize_span(const char *text,int len,int *out_len){
+    if(!g_normalize_space_marker){
+        char *copy=malloc((size_t)len+1); memcpy(copy,text,(size_t)len); copy[len]=0;
+        *out_len=len; return copy;
+    }
+    int spaces=0; for(int i=0;i<len;i++) if(text[i]==' ') spaces++;
+    int nlen=len+2*spaces; char *out=malloc((size_t)nlen+1); int o=0;
+    for(int i=0;i<len;i++){
+        if(text[i]==' '){ out[o++]=(char)0xE2; out[o++]=(char)0x96; out[o++]=(char)0x81; }
+        else out[o++]=text[i];
+    }
+    out[o]=0; *out_len=o; return out;
+}
+
+static void encode_normal_span(const char *text,int len,int **ids,int *n,int *cap){
+    int nlen=0; char *norm=normalize_span(text,len,&nlen);
+    if(!g_pretok_use_regex){
+        bpe_piece(norm,nlen,ids,n,cap);
+    } else {
+        int i=0;
+        while(i<nlen){
+            int j=pretok_end(norm,i,nlen); if(j<=i) j=i+utf8_adv(norm,i);
+            bpe_piece(norm+i,j-i,ids,n,cap); i=j;
+        }
+    }
+    free(norm);
+}
+
 static void encode_text(const char *text,int **out_ids,int *out_n){
     int cap=1024,n=0; int *ids=malloc(cap*sizeof(int));
     int tlen=(int)strlen(text); int i=0;
     while(i<tlen){
         int sid; int L=try_special(text,i,tlen,&sid);
         if(L>0){ push_id(&ids,&n,&cap,sid); i+=L; continue; }
-        int j=pretok_end(text,i,tlen); if(j<=i) j=i+utf8_adv(text,i);
-        bpe_piece(text+i,j-i,&ids,&n,&cap);
+        /* Added/special tokens are isolated before normalization. Encode the
+         * maximal ordinary span using the tokenizer's actual pre-tokenizer. */
+        int j=i+1;
+        while(j<tlen){ int next_id; if(try_special(text,j,tlen,&next_id)>0) break; j++; }
+        encode_normal_span(text+i,j-i,&ids,&n,&cap);
         i=j;
     }
     *out_ids=ids; *out_n=n;
@@ -262,12 +301,37 @@ static void load_tokenizer(const char *path){
     jval *merges = json_get(model, "merges");
     if (merges && merges->t==J_ARR){
         for (int r=0;r<merges->len;r++){
-            const char *e = merges->kids[r]->str; if(!e) continue;
-            const char *sp = strchr(e, ' '); if(!sp) continue;
-            int la=(int)(sp-e), lb=(int)strlen(sp+1);
+            jval *merge=merges->kids[r]; const char *a=NULL,*b=NULL; int la=0,lb=0;
+            if(merge && merge->t==J_STR){
+                const char *e=merge->str; const char *sp=e?strchr(e,' '):NULL; if(!sp) continue;
+                a=e; la=(int)(sp-e); b=sp+1; lb=(int)strlen(b);
+            } else if(merge && merge->t==J_ARR && merge->len>=2 &&
+                      merge->kids[0]->t==J_STR && merge->kids[1]->t==J_STR){
+                a=merge->kids[0]->str; b=merge->kids[1]->str;
+                la=(int)strlen(a); lb=(int)strlen(b);
+            } else continue;
             char *key=malloc(la+1+lb+1);
-            memcpy(key,e,la); key[la]=0x1F; memcpy(key+la+1,sp+1,lb); key[la+1+lb]=0;
+            memcpy(key,a,(size_t)la); key[la]=0x1F; memcpy(key+la+1,b,(size_t)lb); key[la+1+lb]=0;
             smap_put(&g_merge, key, r);
+        }
+    }
+
+    jval *pretok=json_get(root,"pre_tokenizer");
+    if(pretok && pretok->t==J_OBJ){
+        const char *pt=jstr(pretok,"type"); jval *ur=json_get(pretok,"use_regex");
+        if(pt && strcmp(pt,"ByteLevel")==0 && ur && ur->t==J_BOOL) g_pretok_use_regex=ur->boolean;
+    }
+    jval *normalizer=json_get(root,"normalizer");
+    if(normalizer && normalizer->t==J_OBJ){
+        jval *normalizers=json_get(normalizer,"normalizers");
+        if(normalizers && normalizers->t==J_ARR){
+            for(int k=0;k<normalizers->len;k++){
+                jval *z=normalizers->kids[k]; if(!z||z->t!=J_OBJ) continue;
+                const char *zt=jstr(z,"type"),*content=jstr(z,"content");
+                jval *pattern=json_get(z,"pattern"); const char *source=pattern?jstr(pattern,"String"):NULL;
+                if(zt&&strcmp(zt,"Replace")==0 && source&&strcmp(source," ")==0 &&
+                   content&&strcmp(content,"\xE2\x96\x81")==0) g_normalize_space_marker=1;
+            }
         }
     }
     jval *adds = json_get(root, "added_tokens");
@@ -286,7 +350,9 @@ static void load_tokenizer(const char *path){
     }
     build_byte_sym();
 
-    fprintf(stderr, "[tok] loaded %d pieces (max id %d) from %s\n", vocab->len, mx, path);
+    fprintf(stderr, "[tok] loaded %d pieces (max id %d) from %s | merges=%d regex=%d space_marker=%d\n",
+            vocab->len, mx, path, merges&&merges->t==J_ARR?merges->len:0,
+            g_pretok_use_regex, g_normalize_space_marker);
     free(buf);
 }
 

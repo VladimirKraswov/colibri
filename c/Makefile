@@ -600,6 +600,11 @@ tests/test_pilot_ring$(EXE): tests/test_pilot_ring.c colibri.c st.h uring.h json
 tests/test_qwen36_q8$(EXE): tests/test_qwen36_q8.c qwen36.c st.h json.h compat.h
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
+# Full tokenizer parity needs the real Qwen3.6 tokenizer.json and is therefore
+# an explicit integration test rather than part of the source-only test-c gate.
+tests/test_qwen36_tokenizer$(EXE): tests/test_qwen36_tokenizer.c qwen36.c st.h json.h compat.h
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+
 test-c: $(TEST_BINS)
 	$(PYTHON) tools/run_tests.py $(TEST_BINS)
 
