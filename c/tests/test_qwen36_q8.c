@@ -98,6 +98,42 @@ int main(void) {
         }
     }
 
+    /* The fused DeltaNet recurrence must retain the former four-pass result,
+     * including state updates, within ordinary float reduction tolerance. */
+    {
+        enum { DK = 7, DV = 11 };
+        float sr[DK*DV], sf[DK*DV], kd[DK], qd[DK], vd[DV];
+        float kv[DV], dl[DV], orf[DV], ofu[DV];
+        const float egh = 0.93f, beta = 0.41f;
+        for (int i = 0; i < DK*DV; i++) sr[i] = sf[i] = rng_f32() * 0.1f;
+        for (int i = 0; i < DK; i++) { kd[i] = rng_f32() * 0.2f; qd[i] = rng_f32() * 0.2f; }
+        for (int i = 0; i < DV; i++) vd[i] = rng_f32() * 0.2f;
+        for (int i = 0; i < DK*DV; i++) sr[i] *= egh;
+        for (int v = 0; v < DV; v++) kv[v] = 0.f;
+        for (int k = 0; k < DK; k++)
+            for (int v = 0; v < DV; v++) kv[v] += kd[k] * sr[k*DV+v];
+        for (int v = 0; v < DV; v++) dl[v] = (vd[v] - kv[v]) * beta;
+        for (int k = 0; k < DK; k++)
+            for (int v = 0; v < DV; v++) sr[k*DV+v] += kd[k] * dl[v];
+        for (int v = 0; v < DV; v++) orf[v] = 0.f;
+        for (int k = 0; k < DK; k++)
+            for (int v = 0; v < DV; v++) orf[v] += qd[k] * sr[k*DV+v];
+
+        deltanet_recur_head(sf, kd, vd, qd, ofu, DK, DV, egh, beta);
+        for (int i = 0; i < DK*DV; i++) {
+            if (!close_enough(sr[i], sf[i])) {
+                fprintf(stderr, "fused DeltaNet state mismatch i=%d ref=%g got=%g\n", i, sr[i], sf[i]);
+                return 1;
+            }
+        }
+        for (int v = 0; v < DV; v++) {
+            if (!close_enough(orf[v], ofu[v])) {
+                fprintf(stderr, "fused DeltaNet output mismatch v=%d ref=%g got=%g\n", v, orf[v], ofu[v]);
+                return 1;
+            }
+        }
+    }
+
 #if defined(__F16C__)
     {
         enum { HI = 64, HO = 24 };

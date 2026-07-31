@@ -1672,6 +1672,37 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out) {
  *   split conv_out -> q_in/k_in/v_in; repeat_interleave q,k by rep; l2norm
  *   (q scaled by 1/sqrt(kdim)); recurrence S[h]*=exp(g); kv=k@S; delta=(v-kv)*beta;
  *   S+=k (x) delta; out=q@S; per-head Gated RMSNorm (plain weight) -> out_proj. */
+static void deltanet_recur_head(float *Sh, const float *kd, const float *vd,
+                                const float *qd, float *ov, int kdim, int vdim,
+                                float egh, float beta) {
+    float kvl[512], dl[512];   /* production Qwen3.6 vdim=128; guarded by config */
+    if (vdim > 512) { fprintf(stderr, "DeltaNet vdim=%d exceeds recurrence scratch\n", vdim); exit(1); }
+    /* Fuse state decay with kv = kd @ Sh. This keeps the same kk/vv
+     * accumulation order while eliminating one full state pass. */
+    for (int vv = 0; vv < vdim; vv++) kvl[vv] = 0.f;
+    for (int kk = 0; kk < kdim; kk++) {
+        float kkd = kd[kk]; float *Sr = Sh + (int64_t)kk * vdim;
+        for (int vv = 0; vv < vdim; vv++) {
+            float sv = Sr[vv] * egh;
+            Sr[vv] = sv;
+            kvl[vv] += kkd * sv;
+        }
+    }
+    for (int vv = 0; vv < vdim; vv++) dl[vv] = (vd[vv] - kvl[vv]) * beta;
+    /* Fuse Sh += outer(kd, delta) with out = qd @ Sh. Again, each
+     * element and output accumulator sees the same operation order. */
+    for (int vv = 0; vv < vdim; vv++) ov[vv] = 0.f;
+    for (int kk = 0; kk < kdim; kk++) {
+        float kkd = kd[kk], qkd = qd[kk];
+        float *Sr = Sh + (int64_t)kk * vdim;
+        for (int vv = 0; vv < vdim; vv++) {
+            float sv = Sr[vv] + kkd * dl[vv];
+            Sr[vv] = sv;
+            ov[vv] += qkd * sv;
+        }
+    }
+}
+
 static void deltanet(Model *m, Layer *l, int layer, float *x, int S, int pos_base, float *out) {
     (void)pos_base;
     Cfg *c = &m->c;
@@ -1694,8 +1725,6 @@ static void deltanet(Model *m, Layer *l, int layer, float *x, int S, int pos_bas
     float *k = falloc(vh * kdim);
     float *outv = falloc(value_dim);
     float *outr = falloc(value_dim);
-    float *kv = falloc(vdim);
-    float *delta = falloc(vdim);
 
     float *rec = m->DN_rec[layer];      /* [vh*kdim*vdim] */
     float *ring = m->DN_conv[layer];    /* [conv_dim*(convk-1)] */
@@ -1759,33 +1788,14 @@ static void deltanet(Model *m, Layer *l, int layer, float *x, int S, int pos_bas
          * independent -> parallel; kv/delta thread-local) */
         #pragma omp parallel for schedule(static)
         for (int h = 0; h < vh; h++) {
-            float kvl[512], dl[512];   /* vdim <= 512 */
             float *Sh = rec + (int64_t)h * kdim * vdim;
             float egh = expf(gg[h]);
-            for (int t = 0; t < kdim * vdim; t++) Sh[t] *= egh;
             const float *kd = k + (int64_t)h * kdim;
             const float *vd = v_in + (int64_t)h * vdim;
-            /* kv = kd @ Sh  (length vdim) */
-            for (int vv = 0; vv < vdim; vv++) kvl[vv] = 0.f;
-            for (int kk = 0; kk < kdim; kk++) {
-                float kkd = kd[kk]; const float *Sr = Sh + (int64_t)kk * vdim;
-                for (int vv = 0; vv < vdim; vv++) kvl[vv] += kkd * Sr[vv];
-            }
-            /* delta = (v - kv) * beta */
-            for (int vv = 0; vv < vdim; vv++) dl[vv] = (vd[vv] - kvl[vv]) * beta[h];
-            /* Sh += outer(kd, delta) */
-            for (int kk = 0; kk < kdim; kk++) {
-                float kkd = kd[kk]; float *Sr = Sh + (int64_t)kk * vdim;
-                for (int vv = 0; vv < vdim; vv++) Sr[vv] += kkd * dl[vv];
-            }
-            /* out = qd @ Sh */
             const float *qd = q + (int64_t)h * kdim;
             float *ov = outv + (int64_t)h * vdim;
-            for (int vv = 0; vv < vdim; vv++) ov[vv] = 0.f;
-            for (int kk = 0; kk < kdim; kk++) {
-                float qkd = qd[kk]; const float *Sr = Sh + (int64_t)kk * vdim;
-                for (int vv = 0; vv < vdim; vv++) ov[vv] += qkd * Sr[vv];
-            }
+            deltanet_recur_head(Sh, kd, vd, qd, ov, kdim, vdim,
+                                egh, beta[h]);
         }
         if (tm_on() && S==1){ double t=tm_now(); g_dn_sub[2]+=t-_d0; _d0=t; }
         /* per-head Gated RMSNorm (plain weight, r=1/sqrt(mean+eps)) then silu(z) gate, then out_proj.
@@ -1823,7 +1833,7 @@ static void deltanet(Model *m, Layer *l, int layer, float *x, int S, int pos_bas
         }
     }
     free(qkv); free(z); free(b); free(a); free(beta); free(gg);
-    free(conv_out); free(q); free(k); free(outv); free(outr); free(kv); free(delta);
+    free(conv_out); free(q); free(k); free(outv); free(outr);
 }
 
 static float *step(Model *m, const int *ids, int S, int pos_base) {
