@@ -243,6 +243,9 @@ static void handle_conn(sock_t s){
     int stream = 0;
     jval *st = json_get(root, "stream");
     if (st && st->t == J_BOOL) stream = st->boolean;
+    g_ignore_eos = 0;
+    jval *ie = json_get(root, "ignore_eos");
+    if (ie && ie->t == J_BOOL) g_ignore_eos = ie->boolean;
     int max_tokens = (int)jnum(root, "max_tokens");
     if (max_tokens <= 0) max_tokens = (int)jnum(root, "max_completion_tokens");
     int n_new = (max_tokens > 0) ? max_tokens : 256;
@@ -257,8 +260,8 @@ static void handle_conn(sock_t s){
         if (cte && cte->t == J_BOOL) enable_thinking = cte->boolean;
     }
 
-    fprintf(stderr, "[serve] chat: stream=%d max_tokens=%d thinking=%d\n",
-            stream, n_new, enable_thinking);
+    fprintf(stderr, "[serve] chat: stream=%d max_tokens=%d thinking=%d ignore_eos=%d\n",
+            stream, n_new, enable_thinking, g_ignore_eos);
 
     /* Build without the former fixed 64 KiB truncation. The request body is
      * already capped at 64 MiB; template markers add at most ~64 bytes/message. */

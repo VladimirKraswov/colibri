@@ -295,6 +295,7 @@ static void load_tokenizer(const char *path){
  * fallback. Only active when a tokenizer was loaded. */
 /* ---- streaming / incremental decode support ---- */
 static int    g_stream = 0;            /* 1 = emit tokens as they are generated */
+static int    g_ignore_eos = 0;        /* benchmark/diagnostic compatibility */
 static unsigned char g_sbuf[16];       /* carries a partial UTF-8 char across tokens */
 static int    g_sbn = 0;
 
@@ -1974,7 +1975,7 @@ static int generate(Model *m, const int *prompt, int np, int n_new, int *out) {
         int best = 0; float bv = logit[0];
         for (int i = 1; i < c->vocab; i++) if (logit[i] > bv) { bv = logit[i]; best = i; }
         if (s == 0 && g_ttft < 0) g_ttft = now_s() - g_gen_t0;   /* record TTFT */
-        if (best == c->eos_id) {
+        if (best == c->eos_id && !g_ignore_eos) {
             if (getenv("DUMP")) {
                 g_last_logit = malloc((size_t)c->vocab * sizeof(float));
                 memcpy(g_last_logit, logit, (size_t)c->vocab * sizeof(float));
@@ -2071,6 +2072,7 @@ int main(int argc, char **argv) {
     g_wide  = getenv("WIDE")  ? atoi(getenv("WIDE"))  : 1;
     if (g_wide < 1) g_wide = 1; if (g_wide > 4) g_wide = 4;
     if (getenv("OPENAI")) g_openai = 1;                       /* OpenAI-compatible output */
+    if (getenv("IGNORE_EOS")) g_ignore_eos = atoi(getenv("IGNORE_EOS")) != 0;
     const char *mv = getenv("MODEL"); if (mv && *mv) snprintf(g_model, sizeof g_model, "%s", mv);
     int hot_n = getenv("HOT") ? atoi(getenv("HOT")) : 0;
     int cap   = argc > 1 ? atoi(argv[1]) : 16;
