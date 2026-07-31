@@ -430,19 +430,25 @@ static int json_escape(const unsigned char *s, int n, char *out, int outsz){
  * sequence stays in buf. Returns bytes written to out. */
 static int utf8_drain(unsigned char *buf, int *bn, const unsigned char *b, int n, unsigned char *out, int *outn){
     *outn = 0;
-    for (int k=0;k<n;k++){ if (*bn < 16) buf[(*bn)++] = b[k]; }
-    int j = 0;
-    while (j < *bn){
-        unsigned char lead = buf[j]; int need;
-        if (lead < 0x80) need = 1;
-        else if ((lead & 0xE0) == 0xC0) need = 2;
-        else if ((lead & 0xF0) == 0xE0) need = 3;
-        else if ((lead & 0xF8) == 0xF0) need = 4;
-        else { memmove(buf+j, buf+j+1, *bn-j-1); (*bn)--; continue; }
-        if (j+need > *bn) break;
-        if (*outn + need <= 255){ for (int x=0;x<need;x++) out[(*outn)++] = buf[j+x]; }
-        memmove(buf+j, buf+j+need, *bn-j-need);
-        *bn -= need;
+    /* Drain after every appended byte. `buf` is a carry for one incomplete
+     * codepoint, not storage for the whole BPE piece; filling it first used to
+     * drop every byte after the 16th in long Cyrillic/CJK tokens. */
+    for (int k=0;k<n;k++){
+        if (*bn >= 16) *bn = 0; /* impossible for valid UTF-8; recover safely */
+        buf[(*bn)++] = b[k];
+        while (*bn > 0){
+            unsigned char lead = buf[0]; int need;
+            if (lead < 0x80) need = 1;
+            else if ((lead & 0xE0) == 0xC0) need = 2;
+            else if ((lead & 0xF0) == 0xE0) need = 3;
+            else if ((lead & 0xF8) == 0xF0) need = 4;
+            else { memmove(buf,buf+1,(size_t)--(*bn)); continue; }
+            if (*bn < need) break;
+            int valid=1; for(int x=1;x<need;x++) if((buf[x]&0xC0)!=0x80){valid=0;break;}
+            if(!valid){ memmove(buf,buf+1,(size_t)--(*bn)); continue; }
+            if (*outn + need <= 255) for (int x=0;x<need;x++) out[(*outn)++] = buf[x];
+            memmove(buf,buf+need,(size_t)(*bn-need)); *bn -= need;
+        }
     }
     return *outn;
 }
@@ -503,7 +509,10 @@ static int decode_range(const int *arr, int from, int to, char *ob, int obsz){
         unsigned char chunk[256]; int cn = 0; utf8_drain(sb, &sbn, tmp, tn, chunk, &cn);
         for (int k=0;k<cn && o<obsz-1;k++) ob[o++] = (char)chunk[k];
     }
-    for (int k=0;k<sbn && o<obsz-1;k++) ob[o++] = (char)sb[k];   /* flush any trailing partial */
+    /* A max-token boundary may split a byte-level UTF-8 codepoint. An
+     * incomplete tail has no valid textual representation, so omit it rather
+     * than emitting invalid JSON. */
+    sbn = 0;
     if (o < obsz) ob[o] = 0;
     return o;
 }
@@ -577,7 +586,7 @@ static void stream_token(int id){
     out_bytes(g_sbuf, &g_sbn, tmp, tn);
     fflush(stdout);   /* make streaming visible immediately even when piped */
 }
-static void stream_flush(void){ if (g_sbn){ fwrite(g_sbuf, 1, (size_t)g_sbn, stdout); g_sbn = 0; } }
+static void stream_flush(void){ g_sbn = 0; }
 
 /* Emit the final OpenAI Chat Completions response for a finished generation.
  * Streaming: flushes any trailing partial UTF-8 as a last content chunk, then
@@ -593,19 +602,9 @@ static void emit_openai_result(const int *out, int np, int n_new, int stream){
     double tps = (gen_t > 1e-6 && n_new > 1) ? (n_new - 1) / gen_t
                                              : (total > 0 ? n_new / total : 0.0);
     if (stream){
-        if (g_sbn > 0){
-            unsigned char chunk[16]; int cn = 0;
-            for (int k=0;k<g_sbn;k++) chunk[cn++] = g_sbuf[k]; g_sbn = 0;
-            if (cn > 0){
-                char esc[256]; json_escape(chunk, cn, esc, sizeof esc);
-                char jb[1024];
-                snprintf(jb, sizeof jb,
-                  "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
-                  "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
-                  g_oa_id, g_oa_created, g_model, esc);
-                sse_chunk(jb);
-            }
-        }
+        /* Never turn an incomplete byte-level codepoint into invalid UTF-8 at
+         * a max-token boundary. Complete bytes were already emitted above. */
+        g_sbn = 0;
         char jb[1024];
         snprintf(jb, sizeof jb,
           "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","

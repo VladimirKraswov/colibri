@@ -28,7 +28,14 @@ int main(int argc, char **argv) {
         free(ids);
         return 1;
     }
+    char decoded[2048];
+    decode_range(ids, 0, n, decoded, sizeof decoded);
+    if (strcmp(decoded, prompt) != 0) {
+        fprintf(stderr, "decode mismatch:\n%s\n", decoded);
+        free(ids);
+        return 1;
+    }
     free(ids);
-    puts("qwen36 tokenizer parity: PASS (38/38 ids)");
+    puts("qwen36 tokenizer parity: PASS (38/38 ids + UTF-8 decode)");
     return 0;
 }
