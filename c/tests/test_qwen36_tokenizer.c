@@ -35,7 +35,21 @@ int main(int argc, char **argv) {
         free(ids);
         return 1;
     }
+    static const int word_ids[] = {161612, 153717};
+    decode_range(word_ids, 0, 2, decoded, sizeof decoded);
+    if (strcmp(decoded, "произведение") != 0) {
+        fprintf(stderr, "word decode mismatch: %s\n", decoded);
+        free(ids);
+        return 1;
+    }
+    static const int phrase_ids[] = {148464, 155756, 148961, 153717, 12696, 170634};
+    decode_range(phrase_ids, 0, 6, decoded, sizeof decoded);
+    if (strcmp(decoded, "разделить произведение на один") != 0) {
+        fprintf(stderr, "phrase decode mismatch: %s\n", decoded);
+        free(ids);
+        return 1;
+    }
     free(ids);
-    puts("qwen36 tokenizer parity: PASS (38/38 ids + UTF-8 decode)");
+    puts("qwen36 tokenizer parity: PASS (38/38 ids + Russian UTF-8 decode)");
     return 0;
 }
