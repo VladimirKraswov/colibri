@@ -55,7 +55,7 @@ def decode_tps(body, wall_s):
     return (float(tokens) / wall_s if wall_s > 0 else 0.0), "wall"
 
 
-def run_one(base, model, prompt, max_tokens, timeout):
+def run_one(base, model, prompt, max_tokens, timeout, enable_thinking):
     payload = {
         "model": model,
         "messages": [
@@ -66,6 +66,7 @@ def run_one(base, model, prompt, max_tokens, timeout):
         "temperature": 0,
         "seed": 42,
         "stream": False,
+        "chat_template_kwargs": {"enable_thinking": enable_thinking},
     }
     started = time.perf_counter()
     body = request_json(base.rstrip("/") + "/v1/chat/completions", payload, timeout)
@@ -99,6 +100,10 @@ def main():
     parser.add_argument("--suite", help="JSON array of prompt strings")
     parser.add_argument("--max-tokens", type=int, default=96)
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument(
+        "--disable-thinking", action="store_true",
+        help="Use the model's no-thinking chat-template path on both endpoints",
+    )
     parser.add_argument("--out", help="Write the full JSON result to this path")
     args = parser.parse_args()
 
@@ -117,9 +122,15 @@ def main():
     use_default_checks = args.suite is None
     for index, prompt in enumerate(prompts, 1):
         print(f"[{index}/{len(prompts)}] baseline", flush=True)
-        baseline = run_one(args.baseline, models["baseline"], prompt, args.max_tokens, args.timeout)
+        baseline = run_one(
+            args.baseline, models["baseline"], prompt, args.max_tokens, args.timeout,
+            not args.disable_thinking,
+        )
         print(f"[{index}/{len(prompts)}] candidate", flush=True)
-        candidate = run_one(args.candidate, models["candidate"], prompt, args.max_tokens, args.timeout)
+        candidate = run_one(
+            args.candidate, models["candidate"], prompt, args.max_tokens, args.timeout,
+            not args.disable_thinking,
+        )
         ratio = difflib.SequenceMatcher(None, baseline["text"], candidate["text"]).ratio()
         row = {
             "prompt": prompt,
@@ -133,6 +144,11 @@ def main():
         row["prompt_token_match"] = (
             baseline_prompt_tokens is not None
             and baseline_prompt_tokens == candidate_prompt_tokens
+        )
+        row["prompt_token_delta"] = (
+            baseline_prompt_tokens - candidate_prompt_tokens
+            if baseline_prompt_tokens is not None and candidate_prompt_tokens is not None
+            else None
         )
         if use_default_checks:
             row["baseline_task_pass"] = default_task_pass(index - 1, baseline["text"])
@@ -150,6 +166,7 @@ def main():
         "note": "Text similarity is a regression screen, not a substitute for task-specific evaluation.",
     }
     if use_default_checks:
+        token_deltas = [x["prompt_token_delta"] for x in result["prompts"]]
         result["quality"].update({
             "baseline_task_pass_rate": statistics.mean(x["baseline_task_pass"] for x in result["prompts"]),
             "candidate_task_pass_rate": statistics.mean(x["candidate_task_pass"] for x in result["prompts"]),
@@ -157,6 +174,11 @@ def main():
                 x["candidate_task_pass"] or not x["baseline_task_pass"] for x in result["prompts"]
             ),
             "all_prompt_token_counts_match": all(x["prompt_token_match"] for x in result["prompts"]),
+            "prompt_token_deltas": token_deltas,
+            "prompt_token_delta_consistent": (
+                all(delta is not None for delta in token_deltas)
+                and len(set(token_deltas)) == 1
+            ),
         })
 
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
