@@ -45,6 +45,9 @@ authenticated reverse proxy protects the API. `CTX_SIZE` defaults to 131072;
 requests whose prompt plus requested completion exceed it are rejected before
 KV allocation. Very large prefills remain quadratic in the full-attention
 layers, so the limit is a correctness boundary rather than a latency promise.
+The OpenAI chat endpoint follows the model's default thinking template. Send
+`"chat_template_kwargs":{"enable_thinking":false}` (or top-level
+`"enable_thinking":false`) to use Qwen's explicit no-thinking prefix.
 
 If the LXC cannot set a NUMA memory policy, configure interleaving/NUMA at the
 Proxmox container boundary or run the service in a VM with host CPU exposure.

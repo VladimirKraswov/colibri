@@ -130,9 +130,10 @@ static void send_str(sock_t s, const char *str){
     send(s, str, (int)strlen(str), 0);
 }
 
-/* Build a Qwen chat-template prompt from OpenAI-style messages.
- * template: <|im_start|>role\ncontent<|im_end|>\n ... <|im_start|>assistant\n */
-static int build_prompt(jval *messages, char *out, int outcap){
+/* Build the text-only part of the model's Qwen3.6 chat template. The upstream
+ * template opens a thinking block at the generation prompt by default; omitting
+ * it changes both prompt token count and model behaviour relative to llama.cpp. */
+static int build_prompt(jval *messages, int enable_thinking, char *out, int outcap){
     int o = 0;
     if (messages && messages->t == J_ARR){
         for (int i=0;i<messages->len;i++){
@@ -148,7 +149,9 @@ static int build_prompt(jval *messages, char *out, int outcap){
             }
         }
     }
-    const char *tail = "<|im_start|>assistant\n";
+    const char *tail = enable_thinking
+        ? "<|im_start|>assistant\n<think>\n"
+        : "<|im_start|>assistant\n<think>\n\n</think>\n\n";
     if (o + (int)strlen(tail) < outcap) o += snprintf(out+o, outcap-o, "%s", tail);
     out[o] = 0;
     return o;
@@ -244,7 +247,17 @@ static void handle_conn(sock_t s){
     int n_new = (max_tokens > 0) ? max_tokens : 256;
     if (n_new > 8192) n_new = 8192;          /* hard cap to protect memory */
 
-    fprintf(stderr, "[serve] chat: stream=%d max_tokens=%d\n", stream, n_new);
+    int enable_thinking = 1;
+    jval *et = json_get(root, "enable_thinking");
+    if (et && et->t == J_BOOL) enable_thinking = et->boolean;
+    jval *ctk = json_get(root, "chat_template_kwargs");
+    if (ctk && ctk->t == J_OBJ){
+        jval *cte = json_get(ctk, "enable_thinking");
+        if (cte && cte->t == J_BOOL) enable_thinking = cte->boolean;
+    }
+
+    fprintf(stderr, "[serve] chat: stream=%d max_tokens=%d thinking=%d\n",
+            stream, n_new, enable_thinking);
 
     /* Build without the former fixed 64 KiB truncation. The request body is
      * already capped at 64 MiB; template markers add at most ~64 bytes/message. */
@@ -258,7 +271,7 @@ static void handle_conn(sock_t s){
         send_error(s, 500, "out of memory building prompt");
         free(req); free(arena); SOCK_CLOSE(s); return;
     }
-    build_prompt(messages, prompt, (int)prompt_cap);
+    build_prompt(messages, enable_thinking, prompt, (int)prompt_cap);
     int *ids = NULL, np = 0;
     encode_text(prompt, &ids, &np);
     free(prompt);
