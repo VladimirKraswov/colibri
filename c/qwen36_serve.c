@@ -62,6 +62,7 @@ static void sock_send(long long fd, const char *buf, int n){
 }
 
 static Model g_m;
+static int g_ctx_size = 131072;
 
 /* ---------- tiny HTTP helpers ---------- */
 
@@ -265,6 +266,14 @@ static void handle_conn(sock_t s){
         send_error(s, 400, "tokenizer produced no prompt tokens");
         free(req); free(arena); free(ids); SOCK_CLOSE(s); return;
     }
+    if ((int64_t)np + n_new > g_ctx_size){
+        char msg[192];
+        snprintf(msg, sizeof msg,
+            "requested context (%d prompt + %d completion tokens) exceeds CTX_SIZE=%d",
+            np, n_new, g_ctx_size);
+        send_error(s, 400, msg);
+        free(req); free(arena); free(ids); SOCK_CLOSE(s); return;
+    }
 
     /* set up OpenAI emit to this socket */
     g_openai = 1;
@@ -313,6 +322,8 @@ int main(int argc, char **argv){
     int port  = getenv("PORT") ? atoi(getenv("PORT")) : 8000;
     const char *host = getenv("HOST");
     if (!host || !*host) host = "127.0.0.1";
+    if (getenv("CTX_SIZE")) g_ctx_size = atoi(getenv("CTX_SIZE"));
+    if (g_ctx_size < 1){ fprintf(stderr, "CTX_SIZE must be positive (got %d)\n", g_ctx_size); return 1; }
 
     /* load tokenizer (reuse engine loader) */
     {
@@ -330,8 +341,8 @@ int main(int argc, char **argv){
     quantize_dense_weights(&g_m);
     preload_all_experts(&g_m);
     double tload = now_s() - t0;
-    fprintf(stderr, "[serve] model resident in %.1fs | RSS %.2f GB | listening on http://%s:%d  (PORT=%d)\n",
-            tload, rss_gb(), host, port, port);
+    fprintf(stderr, "[serve] model resident in %.1fs | RSS %.2f GB | context=%d | listening on http://%s:%d  (PORT=%d)\n",
+            tload, rss_gb(), g_ctx_size, host, port, port);
     (void)hot_n;
 
     sock_t srv = socket(AF_INET, SOCK_STREAM, 0);

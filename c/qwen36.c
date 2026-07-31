@@ -29,6 +29,9 @@
 #include <stdint.h>
 #include <time.h>
 #include <pthread.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #if defined(__AVX2__)
 #include <immintrin.h>
 #endif
@@ -1419,13 +1422,27 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
     }
     float scale = 1.f / sqrtf((float)hd);
     float *ctx = falloc((int64_t)S*H*hd);
+    /* The former float sc[8192] silently overran the stack for longer
+     * conversations.  Keep one reusable score row per OpenMP worker instead:
+     * the allocation follows the actual request context and is only ~20 MiB
+     * for 40 workers at 131072 tokens. */
+    int sc_cap = pos_base + S;
+    int sc_threads = 1;
+#ifdef _OPENMP
+    sc_threads = omp_get_max_threads();
+#endif
+    float *sc_pool = falloc((int64_t)sc_threads * sc_cap);
     #pragma omp parallel for collapse(2) schedule(static)
     for (int hh = 0; hh < H; hh++) {
         for (int s = 0; s < S; s++) {
             int kvh = hh / q_per_kv;
             int qpos = pos_base + s;
             const float *qv = query + ((int64_t)s*H + hh)*hd;
-            float sc[8192];
+            int sc_tid = 0;
+#ifdef _OPENMP
+            sc_tid = omp_get_thread_num();
+#endif
+            float *sc = sc_pool + (int64_t)sc_tid * sc_cap;
             for (int t = 0; t <= qpos; t++) {
                 const float *kv = m->K[layer] + ((int64_t)kvh*m->max_t + t)*kvd;
                 float acc = 0; for (int dd = 0; dd < kvd; dd++) acc += qv[dd]*kv[dd];
@@ -1448,7 +1465,7 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
         ag[o] = ctx[o] * (1.f / (1.f + expf(-g)));
     }
     matmul_d(out, ag, l->o, S, H*hd, D);
-    free(q); free(k); free(vv); free(query); free(gate); free(ctx); free(ag);
+    free(q); free(k); free(vv); free(query); free(gate); free(ctx); free(sc_pool); free(ag);
 }
 
 /* MoE: grouped top-k routing (+ optional router bias) + shared expert.
