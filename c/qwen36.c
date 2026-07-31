@@ -1924,6 +1924,10 @@ static void reset_recurrent(Model *m){
  * growth so the server doesn't leak KV memory across requests. */
 static void ensure_kv(Model *m){
     Cfg *c = &m->c;
+    if ((unsigned)c->n_layers - 1u >= 1024u) {
+        fprintf(stderr, "invalid layer count while allocating KV: %d\n", c->n_layers);
+        exit(1);
+    }
     if (m->kv_cap >= m->max_t && m->K) return;
     if (m->K){
         for (int i = 0; i < c->n_layers; i++){ if (m->K[i]) free(m->K[i]); if (m->V[i]) free(m->V[i]); }
@@ -2132,7 +2136,7 @@ int main(int argc, char **argv) {
     if (!is_ref && g_tok && !getenv("NOSTREAM")) {
         g_stream = 1; g_sbn = 0;
         if (g_openai){
-            char jb[320];
+            char jb[512];
             snprintf(jb, sizeof jb,
               "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%ld,\"model\":\"%s\","
               "\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}",
