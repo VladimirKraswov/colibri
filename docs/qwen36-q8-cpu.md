@@ -31,12 +31,15 @@ Build on the target CPU so `-march=native` enables AVX2 and FMA:
 make -C c qwen36 qwen36_serve ARCH=native
 ```
 
-The launcher uses 40 physical cores, spreads them across both sockets, keeps
-OpenMP workers hot, disables every GPU visibility path, preloads all 10,240
-experts into RAM, and asks Linux to interleave pages across NUMA nodes:
+The launcher can use all 40 physical cores, spreads workers across both sockets,
+keeps OpenMP workers hot, disables every GPU visibility path, preloads all
+10,240 experts into RAM, and asks Linux to interleave pages across NUMA nodes.
+On the dual E5-2698 v4 reference host, `THREADS=20` was faster and more stable
+than 24 or 32 workers, so the production unit uses that measured setting while
+allowing affinity across all 40 physical cores:
 
 ```bash
-SNAP=/fast/qwen36-hauhau-colibri-q8 HOST=127.0.0.1 PORT=18080 CTX_SIZE=131072 \
+SNAP=/fast/qwen36-hauhau-colibri-q8 HOST=127.0.0.1 PORT=18080 CTX_SIZE=131072 THREADS=20 \
   c/scripts/run_qwen36_q8_cpu.sh
 ```
 
@@ -78,3 +81,21 @@ Do not switch the reverse proxy unless the candidate is faster on a multi-prompt
 median and passes the same deterministic task suite. For strict numerical
 validation, compare dumped full-model logits against the BF16 oracle and require
 cosine similarity at least as high as the existing Q8 deployment.
+
+## Resident dual-engine UI
+
+For a reversible production trial, keep llama.cpp on loopback port 8081 and
+Colibri on loopback port 18080. The example
+`c/scripts/nginx-llm-studio-dual.conf` exposes explicit profile prefixes:
+
+- `/api/llm/legacy/` forwards to llama.cpp;
+- `/api/llm/colibri/` forwards to Colibri;
+- `/api/llm/` and the root OpenAI-compatible API remain on Colibri for backward
+  compatibility.
+
+The chat UI must store an `engineId` on every conversation. Changing engines
+after an assistant response must preserve the old conversation as history and
+create a new empty conversation with no messages, compressed summary, or token
+state. Opening a saved conversation should restore its bound engine. Disable the
+selector while generation is active so one streamed response cannot cross an
+engine boundary.
