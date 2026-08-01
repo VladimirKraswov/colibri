@@ -6,6 +6,7 @@ import type {
   ProviderHealth,
   ProviderMessage,
 } from "./inference-provider.js"
+import { trimRepeatedSuffix } from "./repetition.js"
 
 const number = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) ? value : undefined
 
@@ -53,6 +54,7 @@ export class OpenAIProvider implements InferenceProvider {
 
     const decoder = new TextDecoder()
     let buffer = ""
+    let generatedContent = ""
     let finalUsage: ProviderChunk | undefined
     for await (const raw of response.body) {
       buffer += decoder.decode(raw, { stream: true }).replace(/\r\n/g, "\n")
@@ -76,7 +78,14 @@ export class OpenAIProvider implements InferenceProvider {
           const delta = choice?.delta as Record<string, unknown> | undefined
           const content = typeof delta?.content === "string" ? delta.content : undefined
           const reasoning = typeof delta?.reasoning_content === "string" ? delta.reasoning_content : undefined
-          if (content || reasoning) yield { type: "delta", ...(content ? { content } : {}), ...(reasoning ? { reasoning } : {}) }
+          if (content || reasoning) {
+            generatedContent += content ?? ""
+            yield { type: "delta", ...(content ? { content } : {}), ...(reasoning ? { reasoning } : {}) }
+            if (trimRepeatedSuffix(generatedContent).stopped) {
+              yield { type: "done", finishReason: "repetition" }
+              return
+            }
+          }
 
           const usage = parsed.usage as Record<string, unknown> | undefined
           const timings = parsed.timings as Record<string, unknown> | undefined

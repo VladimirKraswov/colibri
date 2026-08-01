@@ -10,6 +10,7 @@ import type {
 } from "../../platform/inference/inference-provider.js"
 import type { ObjectStorage } from "../../platform/object-storage/object-storage.js"
 import type { ProviderRegistry } from "../../platform/inference/openai-provider.js"
+import { trimRepeatedSuffix } from "../../platform/inference/repetition.js"
 import type { AttachmentRepository } from "../attachments/attachment-repository.js"
 import type { ConversationRepository } from "../conversations/conversation-repository.js"
 import type { AttachmentRecord, MessageRecord, WorkspaceRecord } from "../domain.js"
@@ -100,6 +101,9 @@ export class ChatService {
           tokensPerSecond = chunk.tokensPerSecond
         }
       }
+      const cleaned = trimRepeatedSuffix(content)
+      content = cleaned.content
+      if (cleaned.stopped) finishReason = "repetition"
       const elapsedSeconds = (performance.now() - started) / 1_000
       const message = await this.conversations.completeAssistant(this.workspace.id, turn.assistantMessage.id, {
         content: content || "Модель завершила ответ без текстового содержимого.",
