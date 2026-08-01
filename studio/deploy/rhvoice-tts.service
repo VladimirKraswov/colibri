@@ -1,0 +1,33 @@
+[Unit]
+Description=RHVoice TTS API
+After=network.target
+
+[Service]
+Type=simple
+User=rhvoice-tts
+Group=rhvoice-tts
+WorkingDirectory=/opt/rhvoice-tts
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/rhvoice-tts/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 18082 --workers 2
+Restart=always
+RestartSec=2
+TimeoutStartSec=60
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+UMask=0027
+TasksMax=128
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -42,9 +42,11 @@ describe("loadConfig inference providers", () => {
         vlm5090: "http://vm5090:8000/v1-compatible",
       }),
       ASR_BASE_URL: "http://cpu-inference:8080/api/asr",
+      TTS_BASE_URL: "http://cpu-inference:8080/api/tts/rhvoice",
     })
     expect(config.providers.inference.vlm5090).toBe("http://vm5090:8000/v1-compatible")
     expect(config.providers.asr).toBe("http://cpu-inference:8080/api/asr")
+    expect(config.providers.tts).toBe("http://cpu-inference:8080/api/tts/rhvoice")
   })
 
   it("rejects unsupported provider protocols", () => {

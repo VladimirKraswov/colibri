@@ -25,11 +25,13 @@ export class ServiceCatalogService {
   ) {}
 
   async list(): Promise<ServiceEndpoint[]> {
-    const [gemma, asrOnline] = await Promise.all([
+    const [gemma, asrOnline, ttsOnline] = await Promise.all([
       this.gemmaService(),
       this.probe(`${withoutTrailingSlash(this.config.asr)}/health`),
+      this.probe(`${withoutTrailingSlash(this.config.tts)}/health`),
     ])
     const asrBaseUrl = withoutTrailingSlash(this.config.asr)
+    const ttsBaseUrl = withoutTrailingSlash(this.config.tts)
     return [
       gemma,
       {
@@ -44,6 +46,19 @@ export class ServiceCatalogService {
         protocol: "OpenAI Audio API",
         capabilities: ["audio", "speech-to-text", "ru", "en"],
         model: "GigaAM-v3 e2e RNN-T Q8_0",
+      },
+      {
+        id: "rhvoice-tts",
+        displayName: "RHVoice",
+        kind: "tts",
+        description: "Локальный синтез русской речи на CPU",
+        status: ttsOnline ? "online" : "offline",
+        ...location(ttsBaseUrl),
+        baseUrl: ttsBaseUrl,
+        endpoint: `${ttsBaseUrl}/speak`,
+        protocol: "Litora Speech API",
+        capabilities: ["text-to-speech", "ru", "wav", "streaming"],
+        model: "RHVoice 1.8",
       },
     ]
   }

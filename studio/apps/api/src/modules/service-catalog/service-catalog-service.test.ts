@@ -31,13 +31,14 @@ describe("ServiceCatalogService", () => {
       {
         inference: { gemma: "http://192.168.31.59:8080/api/llm/gemma4/" },
         asr: "http://192.168.31.59:8080/api/asr/",
+        tts: "http://192.168.31.59:8080/api/tts/rhvoice/",
       },
       fetcher,
     )
 
     const result = await service.list()
 
-    expect(result).toHaveLength(2)
+    expect(result).toHaveLength(3)
     expect(result[0]).toMatchObject({
       id: "gemma4",
       status: "online",
@@ -50,6 +51,11 @@ describe("ServiceCatalogService", () => {
       status: "online",
       endpoint: "http://192.168.31.59:8080/api/asr/v1/audio/transcriptions",
     })
+    expect(result[2]).toMatchObject({
+      id: "rhvoice-tts",
+      status: "online",
+      endpoint: "http://192.168.31.59:8080/api/tts/rhvoice/speak",
+    })
   })
 
   it("keeps an unavailable ASR visible as offline", async () => {
@@ -59,12 +65,12 @@ describe("ServiceCatalogService", () => {
     const service = new ServiceCatalogService(
       repository,
       new ProviderRegistry(new Map([["gemma", provider]])),
-      { inference: { gemma: "http://gemma:8080" }, asr: "http://asr:8080" },
+      { inference: { gemma: "http://gemma:8080" }, asr: "http://asr:8080", tts: "http://tts:8080" },
       fetcher,
     )
 
     const result = await service.list()
 
-    expect(result.map(({ status }) => status)).toEqual(["offline", "offline"])
+    expect(result.map(({ status }) => status)).toEqual(["offline", "offline", "offline"])
   })
 })

@@ -87,6 +87,7 @@ S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
 S3_FORCE_PATH_STYLE=true
 INFERENCE_PROVIDERS_JSON='{"gemma":"${cpu_inference_origin}/api/llm/gemma4","qwen":"${cpu_inference_origin}/api/llm/legacy"}'
 ASR_BASE_URL=${cpu_inference_origin}/api/asr
+TTS_BASE_URL=${cpu_inference_origin}/api/tts/rhvoice
 LOG_LEVEL=info
 EOF
 chown root:ai-control-center /etc/ai-control-center/center.env

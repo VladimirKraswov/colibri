@@ -67,6 +67,7 @@ S3_FORCE_PATH_STYLE=true
 GEMMA_BASE_URL=http://127.0.0.1:18080
 QWEN_BASE_URL=http://127.0.0.1:8081
 ASR_BASE_URL=http://127.0.0.1:18081
+TTS_BASE_URL=http://127.0.0.1:18082
 LOG_LEVEL=info
 EOF
 chown root:ai-control-center /etc/ai-control-center/center.env

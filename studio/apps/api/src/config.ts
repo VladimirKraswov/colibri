@@ -17,7 +17,7 @@ export interface CenterConfig {
     secretAccessKey: string
     forcePathStyle: boolean
   }
-  providers: { inference: Record<string, string>; asr: string }
+  providers: { inference: Record<string, string>; asr: string; tts: string }
   logLevel: string
 }
 
@@ -102,6 +102,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CenterConfig {
     providers: {
       inference: inferenceProviders(env),
       asr: providerUrl(required(env, "ASR_BASE_URL", "http://127.0.0.1:18081"), "ASR_BASE_URL"),
+      tts: providerUrl(required(env, "TTS_BASE_URL", "http://127.0.0.1:18082"), "TTS_BASE_URL"),
     },
     logLevel: required(env, "LOG_LEVEL", "info"),
   }
