@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+unit=llama-server.service
+health_url=http://127.0.0.1:8081/health
+
+usage() {
+  echo "Usage: qwen36ctl {start|stop|restart|status|logs}" >&2
+  exit 2
+}
+
+case ${1:-} in
+  start)
+    systemctl start "$unit"
+    echo "Qwen3.6 is loading; waiting for the inference endpoint..."
+    for _ in $(seq 1 900); do
+      if curl -fsS --max-time 2 "$health_url" >/dev/null 2>&1; then
+        echo "Qwen3.6 is ready."
+        exit 0
+      fi
+      if ! systemctl is-active --quiet "$unit"; then
+        systemctl --no-pager --full status "$unit" || true
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "Qwen3.6 did not become ready within 15 minutes." >&2
+    exit 1
+    ;;
+  stop)
+    systemctl stop "$unit"
+    echo "Qwen3.6 is stopped and its process memory has been released."
+    ;;
+  restart)
+    systemctl stop "$unit"
+    exec "$0" start
+    ;;
+  status)
+    systemctl --no-pager --full status "$unit" || true
+    ;;
+  logs)
+    journalctl -u "$unit" -n 200 --no-pager
+    ;;
+  *)
+    usage
+    ;;
+esac

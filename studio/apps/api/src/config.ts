@@ -17,7 +17,7 @@ export interface StudioConfig {
     secretAccessKey: string
     forcePathStyle: boolean
   }
-  providers: { gemma: string; qwen: string; asr: string }
+  providers: { inference: Record<string, string>; asr: string }
   logLevel: string
 }
 
@@ -36,6 +36,43 @@ const integer = (value: string, name: string, minimum: number, maximum: number) 
 }
 
 const boolean = (value: string) => ["1", "true", "yes", "on"].includes(value.toLowerCase())
+
+const providerUrl = (value: unknown, name: string) => {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty URL`)
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(`${name} must be a valid URL`)
+  }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error(`${name} must use http or https`)
+  return value.replace(/\/+$/, "")
+}
+
+const inferenceProviders = (env: NodeJS.ProcessEnv): Record<string, string> => {
+  const raw = env.INFERENCE_PROVIDERS_JSON
+  if (!raw) {
+    return {
+      gemma: providerUrl(required(env, "GEMMA_BASE_URL", "http://127.0.0.1:18080"), "GEMMA_BASE_URL"),
+      qwen: providerUrl(required(env, "QWEN_BASE_URL", "http://127.0.0.1:8081"), "QWEN_BASE_URL"),
+    }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error("INFERENCE_PROVIDERS_JSON must be valid JSON")
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("INFERENCE_PROVIDERS_JSON must be an object")
+  }
+  const entries = Object.entries(parsed)
+  if (!entries.length) throw new Error("INFERENCE_PROVIDERS_JSON must configure at least one provider")
+  return Object.fromEntries(entries.map(([key, value]) => {
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(key)) throw new Error(`Invalid inference provider key ${key}`)
+    return [key, providerUrl(value, `Inference provider ${key}`)]
+  }))
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): StudioConfig {
   const nodeEnv = (env.NODE_ENV ?? "development") as StudioConfig["env"]
@@ -63,9 +100,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): StudioConfig {
       forcePathStyle: boolean(required(env, "S3_FORCE_PATH_STYLE", "true")),
     },
     providers: {
-      gemma: required(env, "GEMMA_BASE_URL", "http://127.0.0.1:18080"),
-      qwen: required(env, "QWEN_BASE_URL", "http://127.0.0.1:8081"),
-      asr: required(env, "ASR_BASE_URL", "http://127.0.0.1:18081"),
+      inference: inferenceProviders(env),
+      asr: providerUrl(required(env, "ASR_BASE_URL", "http://127.0.0.1:18081"), "ASR_BASE_URL"),
     },
     logLevel: required(env, "LOG_LEVEL", "info"),
   }

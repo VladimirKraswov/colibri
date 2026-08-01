@@ -7,13 +7,23 @@ owns binary objects.
 
 ```mermaid
 flowchart LR
-  Browser["React client"] -->|"REST + SSE"| API["Fastify modular monolith"]
-  API --> PG[("PostgreSQL 16")]
-  API --> S3[("MinIO · LXC 104")]
-  API --> Gemma["Gemma 4 provider · :18080"]
-  API --> Qwen["Qwen provider · :8081"]
-  API --> ASR["GigaAM ASR · :18081"]
+  Browser["Browser"] -->|"HTTPS · REST + SSE"| Studio["LXC 202 · React + Fastify gateway"]
+  Studio --> PG[("LXC 202 · PostgreSQL 16")]
+  Studio --> S3[("LXC 104 · MinIO")]
+  Studio --> CPU["LXC 201 · cpu-inference"]
+  CPU --> Gemma["Gemma 4 · Colibri engine"]
+  CPU --> Qwen["Qwen · llama.cpp engine"]
+  CPU --> ASR["GigaAM ASR"]
+  Studio -.-> VLM["VM5090 · future VLM"]
+  Studio -.-> Images["VM5090 · future image provider"]
 ```
+
+The control plane has no model weights and does not depend on a particular
+accelerator. LXC 201 keeps Gemma and ASR resident; the much larger Qwen3.6 Q8
+service is disabled at boot and loaded only through `qwen36ctl start`. LXC 202
+owns the public product endpoint and can fan out to additional inference nodes.
+`INFERENCE_PROVIDERS_JSON` maps stable provider keys to remote
+OpenAI-compatible base URLs; engine rows refer to those keys.
 
 ## Boundaries
 

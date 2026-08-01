@@ -24,5 +24,20 @@ The Vite development server proxies `/api` to Fastify. Production serves the
 compiled React application from the same Fastify process. Nginx terminates TLS
 and preserves the existing OpenAI-compatible inference routes.
 
+In a distributed deployment, `INFERENCE_PROVIDERS_JSON` supplies an extensible
+map of OpenAI-compatible inference endpoints. The Studio control plane can
+therefore run in its own container and route to the CPU node, a VM5090 VLM, or
+later model nodes without recompiling the API. `ASR_BASE_URL` remains separate
+because speech transcription has a different contract.
+
 Database migrations are forward-only, checksummed, transactionally applied on
 service startup and protected by a PostgreSQL advisory lock.
+
+## Deployment profiles
+
+- `deploy/install-runtime.sh` bootstraps the original co-located profile;
+- `deploy/install-distributed-runtime.sh` bootstraps an isolated Studio and PostgreSQL node;
+- `deploy/nginx-llm-studio.conf` is the co-located Nginx profile;
+- `deploy/nginx-studio-gateway.conf` proxies compatibility routes from LXC 202 to CPU inference in LXC 201;
+- `deploy/nginx-cpu-inference-gateway.conf` keeps the old LXC 201 address compatible after Studio moves;
+- `deploy/distributed.env.example` documents the node topology and future provider map.

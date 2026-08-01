@@ -40,10 +40,9 @@ export function createServices(
   const attachments = new PostgresAttachmentRepository(pool)
   const imports = new PostgresImportRepository(pool)
   const speech = new SpeechService(config.providers.asr)
-  const providers = new ProviderRegistry(new Map([
-    ["gemma", new OpenAIProvider(config.providers.gemma)],
-    ["qwen", new OpenAIProvider(config.providers.qwen)],
-  ]))
+  const providers = new ProviderRegistry(new Map(
+    Object.entries(config.providers.inference).map(([key, baseUrl]) => [key, new OpenAIProvider(baseUrl)]),
+  ))
   const attachmentService = new AttachmentService(workspace, attachments, storage, speech)
   const chatService = new ChatService(
     workspace,
