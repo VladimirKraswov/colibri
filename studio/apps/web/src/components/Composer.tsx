@@ -1,7 +1,8 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Attachment } from "@llm-control/contracts"
 
 import { api } from "../api/client.js"
+import { dictationCopy, nextDictationPhase, type DictationPhase } from "../lib/dictation-state.js"
 import { createPcmRecorder, type PcmRecorder } from "../lib/recorder.js"
 import { CloseIcon, FileIcon, MicIcon, PaperclipIcon, SendIcon, StopIcon } from "./Icons.js"
 
@@ -24,34 +25,50 @@ const accept = "image/*,video/*,audio/*,text/*,.md,.json,.jsonl,.csv,.tsv,.log,.
 export function Composer(props: ComposerProps) {
   const input = useRef<HTMLInputElement>(null)
   const recorder = useRef<PcmRecorder | null>(null)
-  const startedOnPointerDown = useRef(false)
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
+  const initializing = useRef(false)
+  const mounted = useRef(true)
+  const [dictation, setDictation] = useState<DictationPhase>("idle")
   const [dragging, setDragging] = useState(false)
   const [spectrum, setSpectrum] = useState(() => Array.from({ length: 16 }, () => 0.06))
+  const recording = dictation === "recording"
+  const transcribing = dictation === "transcribing"
+  const dictationStatus = dictation === "idle" ? null : dictationCopy(dictation)
+
+  useEffect(() => () => {
+    mounted.current = false
+    recorder.current?.cancel()
+  }, [])
 
   const startRecording = async () => {
-    if (recording || recorder.current || transcribing) return
+    if (dictation !== "idle" || recorder.current || initializing.current) return
+    initializing.current = true
+    setSpectrum(Array.from({ length: 16 }, () => 0.06))
+    setDictation((current) => nextDictationPhase(current, "start"))
     try {
-      recorder.current = await createPcmRecorder(setSpectrum)
-      setRecording(true)
+      const active = await createPcmRecorder(setSpectrum)
+      if (!mounted.current) { active.cancel(); return }
+      recorder.current = active
+      setDictation((current) => nextDictationPhase(current, "ready"))
     } catch (error) {
+      setDictation((current) => nextDictationPhase(current, "fail"))
       props.onError(error instanceof Error ? error.message : "Не удалось включить микрофон")
+    } finally {
+      initializing.current = false
     }
   }
   const stopRecording = async () => {
     const active = recorder.current
     if (!active) return
     recorder.current = null
-    setRecording(false)
-    setTranscribing(true)
+    setDictation((current) => nextDictationPhase(current, "stop"))
     try {
       const { text } = await api.transcribe(await active.stop())
       props.onChange(`${props.value}${props.value.trim() ? " " : ""}${text}`)
+      setDictation((current) => nextDictationPhase(current, "complete"))
     } catch (error) {
+      setDictation((current) => nextDictationPhase(current, "fail"))
       props.onError(error instanceof Error ? error.message : "Не удалось распознать речь")
     } finally {
-      setTranscribing(false)
       setSpectrum(Array.from({ length: 16 }, () => 0.06))
     }
   }
@@ -66,17 +83,18 @@ export function Composer(props: ComposerProps) {
         <span><b>{attachment.filename}</b><small>{attachment.kind === "audio" && attachment.transcript ? "Речь распознана" : attachment.kind}</small></span>
         <button onClick={() => props.onRemove(attachment)}><CloseIcon /></button>
       </div>)}</div>}
-      {recording && <div className="dictation">
-        <span className="dictation__dot" /><span>Слушаю</span>
-        <div className="spectrum" aria-label="Уровень микрофона">{spectrum.map((value, index) => <i key={index} style={{ height: `${Math.round(4 + value * 24)}px` }} />)}</div>
-        <span className="dictation__hint">нажмите микрофон, чтобы завершить</span>
+      {dictationStatus && <div className={`dictation dictation--${dictation}`} role="status" aria-live="polite">
+        {dictation === "initializing" ? <span className="dictation__spinner" /> : <span className="dictation__dot" />}
+        <span>{dictationStatus.label}</span>
+        {dictation !== "transcribing" && <div className="spectrum" aria-label={recording ? "Уровень микрофона" : "Микрофон запускается"}>{spectrum.map((value, index) => <i key={index} style={{ height: `${Math.round(4 + value * 24)}px` }} />)}</div>}
+        <span className="dictation__hint">{dictationStatus.hint}</span>
       </div>}
       <textarea
         value={props.value}
         disabled={props.disabled}
         onChange={(event) => props.onChange(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); props.onSend() } }}
-        placeholder={recording ? "Говорите…" : "Сообщение для модели"}
+        placeholder={dictation === "initializing" ? "Подождите, микрофон запускается…" : recording ? "Говорите…" : transcribing ? "Распознаю речь…" : "Сообщение для модели"}
         rows={1}
       />
       <div className="composer__toolbar">
@@ -84,18 +102,14 @@ export function Composer(props: ComposerProps) {
           <input ref={input} hidden type="file" multiple accept={accept} onChange={(event) => { props.onFiles(Array.from(event.target.files ?? [])); event.target.value = "" }} />
           <button title="Добавить файл" disabled={props.uploading || props.disabled} onClick={() => input.current?.click()}><PaperclipIcon /></button>
           <button
-            className={recording ? "is-recording" : ""}
-            title={recording ? "Завершить диктовку" : "Диктовка"}
-            disabled={transcribing || props.disabled}
-            onPointerDown={() => {
-              if (!recording && !recorder.current) { startedOnPointerDown.current = true; void startRecording() }
-            }}
+            className={dictation === "initializing" ? "is-initializing" : recording ? "is-recording" : ""}
+            title={dictation === "initializing" ? "Микрофон запускается" : recording ? "Завершить диктовку" : transcribing ? "Речь распознаётся" : "Диктовка"}
+            disabled={dictation === "initializing" || transcribing || props.disabled}
             onClick={() => {
-              if (startedOnPointerDown.current) { startedOnPointerDown.current = false; return }
               if (recording) void stopRecording(); else void startRecording()
             }}
           >{recording ? <StopIcon /> : <MicIcon />}</button>
-          {(props.uploading || transcribing) && <span className="composer__status">{transcribing ? "Распознаю речь…" : "Загружаю…"}</span>}
+          {props.uploading && <span className="composer__status">Загружаю…</span>}
         </div>
         {props.streaming
           ? <button className="send-button is-stop" title="Остановить" onClick={props.onStop}><StopIcon /></button>

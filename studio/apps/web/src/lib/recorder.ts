@@ -3,6 +3,9 @@ export interface PcmRecorder {
   cancel(): void
 }
 
+const inputWarmupMs = 300
+const inputTimeoutMs = 5_000
+
 const merge = (chunks: Float32Array[]) => {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
   const result = new Float32Array(total)
@@ -56,13 +59,20 @@ export async function createPcmRecorder(onSpectrum: (levels: number[]) => void):
   const processor = context.createScriptProcessor(2048, 1, 1)
   const silent = context.createGain()
   const chunks: Float32Array[] = []
+  let confirmFirstFrame: (() => void) | null = null
+  const firstFrame = new Promise<void>((resolve) => { confirmFirstFrame = resolve })
   let stopped = false
   let frame = 0
   let lastDraw = 0
   analyser.fftSize = 256
   analyser.smoothingTimeConstant = 0.72
   silent.gain.value = 0
-  processor.onaudioprocess = (event) => { if (!stopped) chunks.push(event.inputBuffer.getChannelData(0).slice()) }
+  processor.onaudioprocess = (event) => {
+    if (stopped) return
+    chunks.push(event.inputBuffer.getChannelData(0).slice())
+    confirmFirstFrame?.()
+    confirmFirstFrame = null
+  }
   source.connect(processor); source.connect(analyser); processor.connect(silent); analyser.connect(silent); silent.connect(context.destination)
   const frequencies = new Uint8Array(analyser.frequencyBinCount)
   const draw = (now: number) => {
@@ -88,6 +98,24 @@ export async function createPcmRecorder(onSpectrum: (levels: number[]) => void):
     processor.onaudioprocess = null
     stream.getTracks().forEach((track) => track.stop())
     try { source.disconnect(); processor.disconnect(); analyser.disconnect(); silent.disconnect() } catch { /* closed */ }
+  }
+  let readinessTimeout = 0
+  try {
+    await Promise.race([
+      firstFrame,
+      new Promise<never>((_resolve, reject) => {
+        readinessTimeout = window.setTimeout(() => reject(new Error("Микрофон не передаёт аудиосигнал")), inputTimeoutMs)
+      }),
+    ])
+    window.clearTimeout(readinessTimeout)
+    // Keep recording during the warm-up: premature speech is retained as pre-roll,
+    // while the UI waits before telling the user that it is safe to speak.
+    await new Promise<void>((resolve) => window.setTimeout(resolve, inputWarmupMs))
+  } catch (error) {
+    window.clearTimeout(readinessTimeout)
+    close()
+    await context.close()
+    throw error
   }
   return {
     async stop() {
