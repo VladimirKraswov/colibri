@@ -1,4 +1,4 @@
-import type { Message } from "@colibri/contracts"
+import type { Message } from "@llm-control/contracts"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -8,7 +8,7 @@ const formatSize = (bytes: number) => bytes < 1024 ** 2 ? `${Math.ceil(bytes / 1
 
 export function MessageList({ messages, engineName, streaming }: MessageListProps) {
   if (!messages.length) return <div className="welcome">
-    <div className="welcome__badge">C</div>
+    <div className="welcome__badge">L</div>
     <h1>Чем займёмся?</h1>
     <p>{engineName} готова к диалогу. Можно добавить изображение, видео, аудио или текстовый файл.</p>
     <div className="suggestions">
@@ -18,7 +18,7 @@ export function MessageList({ messages, engineName, streaming }: MessageListProp
 
   return <div className="messages">
     {messages.map((message) => <article className={`message message--${message.role}`} key={message.id}>
-      <div className="message__avatar">{message.role === "user" ? "В" : "C"}</div>
+      <div className="message__avatar">{message.role === "user" ? "В" : "AI"}</div>
       <div className="message__body">
         <div className="message__author">{message.role === "user" ? "Вы" : engineName}</div>
         {message.attachments.length > 0 && <div className="message__attachments">

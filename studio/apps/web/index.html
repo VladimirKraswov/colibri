@@ -6,10 +6,11 @@
     <meta name="theme-color" content="#fff7f1" />
     <script>
       try {
-        document.documentElement.dataset.theme = localStorage.getItem("colibri-studio-theme") === "ember-dark" ? "ember-dark" : "peach-light"
+        const savedTheme = localStorage.getItem("llm-control-theme") ?? localStorage.getItem("colibri-studio-theme")
+        document.documentElement.dataset.theme = savedTheme === "ember-dark" ? "ember-dark" : "peach-light"
       } catch { document.documentElement.dataset.theme = "peach-light" }
     </script>
-    <title>Colibri Studio</title>
+    <title>LLM Control — управление локальными моделями</title>
   </head>
   <body>
     <div id="root"></div>

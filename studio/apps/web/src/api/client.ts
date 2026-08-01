@@ -5,8 +5,8 @@ import type {
   ChatStreamEvent,
   Conversation,
   LegacyLocalStorageImport,
-  StudioSettings,
-} from "@colibri/contracts"
+  ControlSettings,
+} from "@llm-control/contracts"
 
 interface ApiErrorBody { error?: { message?: string } }
 
@@ -30,11 +30,11 @@ export const api = {
     const response = await fetch(`/api/v1/conversations/${id}`, { method: "DELETE" })
     if (!response.ok) await json(response)
   },
-  updateSettings: (settings: StudioSettings) => fetch("/api/v1/settings", {
+  updateSettings: (settings: ControlSettings) => fetch("/api/v1/settings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(settings),
-  }).then((response) => json<StudioSettings>(response)),
+  }).then((response) => json<ControlSettings>(response)),
   upload: (file: File) => {
     const form = new FormData()
     form.append("file", file, file.name)

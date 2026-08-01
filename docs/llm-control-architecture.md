@@ -1,21 +1,21 @@
-# Colibri Studio service architecture
+# LLM Control service architecture
 
-`studio/` turns the browser-only LLM Studio bundle into a self-contained local
+`studio/` turns the browser-only LLM Control bundle into a self-contained local
 service. The C/C++ inference processes remain focused model providers. Fastify
 owns application behavior, PostgreSQL owns durable structured state, and MinIO
 owns binary objects.
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] -->|"HTTPS · REST + SSE"| Studio["LXC 202 · React + Fastify gateway"]
-  Studio --> PG[("LXC 202 · PostgreSQL 16")]
-  Studio --> S3[("LXC 104 · MinIO")]
-  Studio --> CPU["LXC 201 · cpu-inference"]
+  Browser["Browser"] -->|"HTTPS · REST + SSE"| Control["LXC 202 · LLM Control"]
+  Control --> PG[("LXC 202 · PostgreSQL 16")]
+  Control --> S3[("LXC 104 · MinIO")]
+  Control --> CPU["LXC 201 · cpu-inference"]
   CPU --> Gemma["Gemma 4 · Colibri engine"]
   CPU --> Qwen["Qwen · llama.cpp engine"]
   CPU --> ASR["GigaAM ASR"]
-  Studio -.-> VLM["VM5090 · future VLM"]
-  Studio -.-> Images["VM5090 · future image provider"]
+  Control -.-> VLM["VM5090 · future VLM"]
+  Control -.-> Images["VM5090 · future image provider"]
 ```
 
 The control plane has no model weights and does not depend on a particular
@@ -49,7 +49,7 @@ provider metadata and evolving statistics; searchable domain fields remain
 typed columns.
 
 MinIO stores images, video, audio and source files in the private
-`colibri-studio` bucket. Objects use workspace and attachment UUID prefixes;
+`llm-control` bucket. Objects use workspace and attachment UUID prefixes;
 their SHA-256 digest is stored beside the metadata for integrity checks and
 future deduplication.
 Fastify streams uploads/downloads and never exposes MinIO credentials to the

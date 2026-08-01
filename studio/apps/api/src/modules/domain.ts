@@ -1,4 +1,4 @@
-import type { Attachment, Conversation, ConversationSummary, Message, StudioSettings } from "@colibri/contracts"
+import type { Attachment, Conversation, ConversationSummary, Message, ControlSettings } from "@llm-control/contracts"
 
 export interface WorkspaceRecord {
   id: string
@@ -34,7 +34,7 @@ export interface ConversationRecord extends Omit<Conversation, "messages"> {
 }
 
 export type ConversationSummaryRecord = ConversationSummary
-export type SettingsRecord = StudioSettings
+export type SettingsRecord = ControlSettings
 
 export interface TurnCreation {
   conversation: ConversationRecord

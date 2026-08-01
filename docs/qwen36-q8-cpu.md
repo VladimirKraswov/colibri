@@ -86,7 +86,7 @@ cosine similarity at least as high as the existing Q8 deployment.
 
 For a reversible production trial, keep llama.cpp on loopback port 8081 and
 Colibri on loopback port 18080. The example
-`c/scripts/nginx-llm-studio-dual.conf` exposes explicit profile prefixes:
+`c/scripts/nginx-llm-control-dual.conf` exposes explicit profile prefixes:
 
 - `/api/llm/legacy/` forwards to llama.cpp;
 - `/api/llm/colibri/` forwards to Colibri;

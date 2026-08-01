@@ -9,7 +9,7 @@ import type {
   EngineSchema,
   MessageRoleSchema,
   MessageSchema,
-  StudioSettingsSchema,
+  ControlSettingsSchema,
   ThemeSchema,
 } from "./schemas.js"
 
@@ -21,7 +21,7 @@ export type ConversationSummary = Static<typeof ConversationSummarySchema>
 export type Engine = Static<typeof EngineSchema>
 export type MessageRole = Static<typeof MessageRoleSchema>
 export type Message = Static<typeof MessageSchema>
-export type StudioSettings = Static<typeof StudioSettingsSchema>
+export type ControlSettings = Static<typeof ControlSettingsSchema>
 export type Theme = Static<typeof ThemeSchema>
 
 export interface ChatRequest {

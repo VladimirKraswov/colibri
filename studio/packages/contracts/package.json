@@ -1,5 +1,5 @@
 {
-  "name": "@colibri/contracts",
+  "name": "@llm-control/contracts",
   "private": true,
   "version": "0.1.0",
   "type": "module",

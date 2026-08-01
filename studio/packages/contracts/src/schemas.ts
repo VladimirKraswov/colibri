@@ -87,7 +87,7 @@ export const ConversationSchema = Type.Intersect([
   }),
 ])
 
-export const StudioSettingsSchema = Type.Object({
+export const ControlSettingsSchema = Type.Object({
   theme: ThemeSchema,
   defaultEngineId: Type.String(),
   systemPrompt: Type.String(),
@@ -106,7 +106,7 @@ export const StudioSettingsSchema = Type.Object({
 export const BootstrapSchema = Type.Object({
   workspace: Type.Object({ id: IdSchema, slug: Type.String(), name: Type.String() }),
   engines: Type.Array(EngineSchema),
-  settings: StudioSettingsSchema,
+  settings: ControlSettingsSchema,
   conversations: Type.Array(ConversationSummarySchema),
   storage: Type.Object({ provider: Type.Literal("s3"), bucket: Type.String(), healthy: Type.Boolean() }),
   migration: Type.Object({ localStorageImported: Type.Boolean() }),

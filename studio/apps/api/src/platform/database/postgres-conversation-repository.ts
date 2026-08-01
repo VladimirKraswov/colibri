@@ -1,4 +1,4 @@
-import type { ChatRequest } from "@colibri/contracts"
+import type { ChatRequest } from "@llm-control/contracts"
 
 import type {
   AssistantCompletion,

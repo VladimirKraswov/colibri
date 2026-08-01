@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport, Theme } from "@colibri/contracts"
+import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport, Theme } from "@llm-control/contracts"
 
 import { api, streamMessage } from "./api/client.js"
 import { Composer } from "./components/Composer.js"
@@ -11,15 +11,16 @@ import { Sidebar } from "./components/Sidebar.js"
 import { updateFromStream } from "./lib/stream-state.js"
 import { applyTheme, loadStoredTheme } from "./lib/theme.js"
 
-const conversationsKey = "llm-studio-conversations-v1"
-const settingsKey = "llm-studio-settings-v2"
-const importMarker = "colibri-studio-postgres-import-v1"
+// These names belong to the browser-only predecessor and remain read-only migration inputs.
+const legacyConversationsKey = "llm-studio-conversations-v1"
+const legacySettingsKey = "llm-studio-settings-v2"
+const importMarker = "llm-control-postgres-import-v1"
 
 const legacyPayload = (): LegacyLocalStorageImport | null => {
   try {
-    const conversations = JSON.parse(localStorage.getItem(conversationsKey) ?? "[]") as unknown
+    const conversations = JSON.parse(localStorage.getItem(legacyConversationsKey) ?? "[]") as unknown
     if (!Array.isArray(conversations) || conversations.length === 0) return null
-    const settings = JSON.parse(localStorage.getItem(settingsKey) ?? "{}") as unknown
+    const settings = JSON.parse(localStorage.getItem(legacySettingsKey) ?? "{}") as unknown
     return {
       sourceVersion: "llm-studio-conversations-v1",
       conversations,
@@ -182,7 +183,7 @@ export function App() {
     setSettingsOpen(false)
   }
 
-  if (bootstrap.isLoading) return <div className="boot"><span className="brand__mark">C</span><p>Запускаю Colibri Studio…</p></div>
+  if (bootstrap.isLoading) return <div className="boot"><span className="brand__mark">L</span><p>Запускаю LLM Control…</p></div>
   if (bootstrap.error || !bootstrap.data) return <div className="boot boot--error"><h1>Сервис временно недоступен</h1><p>{bootstrap.error?.message}</p><button onClick={() => void bootstrap.refetch()}>Повторить</button></div>
   const data: Bootstrap = bootstrap.data
 

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 
-import type { AttachmentKind } from "@colibri/contracts"
+import type { AttachmentKind } from "@llm-control/contracts"
 
 import { AppError, notFound } from "../../platform/errors.js"
 import type { ObjectStorage } from "../../platform/object-storage/object-storage.js"

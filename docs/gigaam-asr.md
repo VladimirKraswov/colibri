@@ -1,6 +1,6 @@
 # CPU dictation with GigaAM-v3 RNN-T Q8
 
-LLM Studio uses a separate CPU speech-recognition path because the Gemma 4
+LLM Control uses a separate CPU speech-recognition path because the Gemma 4
 text/image/video projector does not consume audio. Uploaded audio is
 transcribed first and the transcript is added to the model prompt. Microphone
 dictation inserts the recognized text into the composer.
@@ -24,7 +24,7 @@ and verifies the model SHA-256
 
 ## UI behavior
 
-The deployed LLM Studio composer accepts files from the picker and by dropping
+The deployed LLM Control composer accepts files from the picker and by dropping
 them anywhere over the application:
 
 - images up to 12 MB and videos up to 32 MB are passed to the Gemma 4
@@ -63,7 +63,7 @@ sudo ./c/scripts/install-gigaam-asr.sh
 sudo ./c/scripts/create-local-ui-certificate.sh 192.168.31.59
 ```
 
-Install `c/scripts/nginx-llm-studio-dual.conf` after creating the certificate,
+Install `c/scripts/nginx-llm-control-dual.conf` after creating the certificate,
 then test and reload Nginx. The example uses the current inference host; pass
 the IP address or DNS name that browsers actually use in other deployments.
 The certificate is self-signed, so import it into the client trust store or

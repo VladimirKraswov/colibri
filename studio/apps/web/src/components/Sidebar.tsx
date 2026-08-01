@@ -1,4 +1,4 @@
-import type { ConversationSummary } from "@colibri/contracts"
+import type { ConversationSummary } from "@llm-control/contracts"
 
 import { PlusIcon, SettingsIcon, TrashIcon } from "./Icons.js"
 
@@ -21,7 +21,7 @@ const relative = (value: string) => {
 
 export function Sidebar({ open, conversations, selectedId, onSelect, onNew, onDelete, onSettings }: SidebarProps) {
   return <aside className={`sidebar ${open ? "sidebar--open" : ""}`}>
-    <div className="brand"><span className="brand__mark">C</span><span>Colibri Studio</span></div>
+    <div className="brand"><span className="brand__mark">L</span><span>LLM Control</span></div>
     <button className="new-chat" onClick={onNew}><PlusIcon />Новый диалог</button>
     <div className="history">
       <div className="history__label">Диалоги</div>

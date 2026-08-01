@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import type { Attachment } from "@colibri/contracts"
+import type { Attachment } from "@llm-control/contracts"
 
 import { api } from "../api/client.js"
 import { createPcmRecorder, type PcmRecorder } from "../lib/recorder.js"

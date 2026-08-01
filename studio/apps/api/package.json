@@ -1,5 +1,5 @@
 {
-  "name": "@colibri/api",
+  "name": "@llm-control/api",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1101.0",
-    "@colibri/contracts": "*",
+    "@llm-control/contracts": "*",
     "@fastify/helmet": "13.1.0",
     "@fastify/multipart": "10.1.0",
     "@fastify/static": "10.1.2",

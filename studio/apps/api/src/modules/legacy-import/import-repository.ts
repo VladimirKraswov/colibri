@@ -1,4 +1,4 @@
-import type { LegacyLocalStorageImport } from "@colibri/contracts"
+import type { LegacyLocalStorageImport } from "@llm-control/contracts"
 
 export interface ImportResult {
   duplicate: boolean

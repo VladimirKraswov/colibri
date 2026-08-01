@@ -1,4 +1,4 @@
-import type { Conversation, Message } from "@colibri/contracts"
+import type { Conversation, Message } from "@llm-control/contracts"
 import { describe, expect, it } from "vitest"
 
 import { updateFromStream } from "./stream-state.js"

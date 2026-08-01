@@ -1,5 +1,5 @@
 [Unit]
-Description=GigaAM-v3 RNN-T Q8 CPU speech recognition for LLM Studio
+Description=GigaAM-v3 RNN-T Q8 CPU speech recognition for LLM Control
 After=network-online.target
 Wants=network-online.target
 

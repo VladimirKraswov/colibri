@@ -3,8 +3,8 @@ set -euo pipefail
 
 UI_HOST=${1:-}
 CERT_DIR=/etc/nginx/ssl
-CERT_PATH=${CERT_DIR}/llm-studio.crt
-KEY_PATH=${CERT_DIR}/llm-studio.key
+CERT_PATH=${CERT_DIR}/llm-control.crt
+KEY_PATH=${CERT_DIR}/llm-control.key
 
 if [[ -z ${UI_HOST} ]]; then
   printf 'usage: %s <UI IP address or DNS name>\n' "$0" >&2

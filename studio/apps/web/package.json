@@ -1,5 +1,5 @@
 {
-  "name": "@colibri/web",
+  "name": "@llm-control/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,7 +10,7 @@
     "dev": "vite --host 0.0.0.0"
   },
   "dependencies": {
-    "@colibri/contracts": "*",
+    "@llm-control/contracts": "*",
     "@tanstack/react-query": "5.101.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

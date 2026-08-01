@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, Conversation } from "@colibri/contracts"
+import type { ChatStreamEvent, Conversation } from "@llm-control/contracts"
 
 export const updateFromStream = (conversation: Conversation, event: ChatStreamEvent): Conversation => {
   if (event.type === "message.started") {

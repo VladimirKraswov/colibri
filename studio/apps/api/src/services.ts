@@ -1,4 +1,4 @@
-import type { StudioConfig } from "./config.js"
+import type { ControlConfig } from "./config.js"
 import { AttachmentService } from "./modules/attachments/attachment-service.js"
 import { ChatService } from "./modules/chat/chat-service.js"
 import type { WorkspaceRecord } from "./modules/domain.js"
@@ -12,8 +12,8 @@ import type { DatabasePool } from "./platform/database/pool.js"
 import { OpenAIProvider, ProviderRegistry } from "./platform/inference/openai-provider.js"
 import type { ObjectStorage } from "./platform/object-storage/object-storage.js"
 
-export interface StudioServices {
-  config: StudioConfig
+export interface ControlServices {
+  config: ControlConfig
   pool: DatabasePool
   workspace: WorkspaceRecord
   storage: ObjectStorage
@@ -29,11 +29,11 @@ export interface StudioServices {
 }
 
 export function createServices(
-  config: StudioConfig,
+  config: ControlConfig,
   pool: DatabasePool,
   workspace: WorkspaceRecord,
   storage: ObjectStorage,
-): StudioServices {
+): ControlServices {
   const engines = new PostgresEngineRepository(pool)
   const settings = new PostgresSettingsRepository(pool)
   const conversations = new PostgresConversationRepository(pool)

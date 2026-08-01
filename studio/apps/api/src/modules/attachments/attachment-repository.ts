@@ -1,4 +1,4 @@
-import type { AttachmentKind } from "@colibri/contracts"
+import type { AttachmentKind } from "@llm-control/contracts"
 
 import type { AttachmentRecord } from "../domain.js"
 

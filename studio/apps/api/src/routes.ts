@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto"
 
-import type { ChatRequest, LegacyLocalStorageImport, StudioSettings } from "@colibri/contracts"
-import { StudioSettingsSchema } from "@colibri/contracts"
+import type { ChatRequest, LegacyLocalStorageImport, ControlSettings } from "@llm-control/contracts"
+import { ControlSettingsSchema } from "@llm-control/contracts"
 import type { FastifyInstance, FastifyReply } from "fastify"
 import { Type } from "typebox"
 
 import { attachmentDto, conversationDto, conversationSummaryDto } from "./modules/api-mappers.js"
 import { EngineService } from "./modules/engines/engine-service.js"
 import { AppError, notFound } from "./platform/errors.js"
-import type { StudioServices } from "./services.js"
+import type { ControlServices } from "./services.js"
 
 const IdParamsSchema = Type.Object({ id: Type.String({ format: "uuid" }) })
 const CreateConversationSchema = Type.Object({ engineId: Type.String({ minLength: 1, maxLength: 64 }) })
@@ -27,7 +27,7 @@ const writeSse = (reply: FastifyReply, value: unknown) => {
   reply.raw.write(`data: ${JSON.stringify(value)}\n\n`)
 }
 
-export async function registerApiRoutes(app: FastifyInstance, services: StudioServices): Promise<void> {
+export async function registerApiRoutes(app: FastifyInstance, services: ControlServices): Promise<void> {
   const engineService = new EngineService(services.engines, services.providers)
 
   app.get("/health", async (_request, reply) => {
@@ -67,7 +67,7 @@ export async function registerApiRoutes(app: FastifyInstance, services: StudioSe
 
   app.get("/engines", async () => engineService.list())
 
-  app.put<{ Body: StudioSettings }>("/settings", { schema: { body: StudioSettingsSchema } }, async (request) => {
+  app.put<{ Body: ControlSettings }>("/settings", { schema: { body: ControlSettingsSchema } }, async (request) => {
     if (!await services.engines.get(request.body.defaultEngineId)) throw notFound("Engine")
     return services.settings.update(services.workspace.id, request.body)
   })
