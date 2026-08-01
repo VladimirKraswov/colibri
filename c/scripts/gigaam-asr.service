@@ -18,6 +18,8 @@ Environment=GIGAAM_PORT=18081
 Environment=GIGAAM_THREADS=8
 Environment=GIGAAM_MAX_AUDIO_SECONDS=600
 Environment=GIGAAM_CHUNK_SECONDS=24
+Environment=GIGAAM_LEADING_PAD_SECONDS=0.65
+Environment=GIGAAM_TRAILING_PAD_SECONDS=0.20
 ExecStart=/usr/bin/python3 /usr/local/libexec/gigaam_asr_server.py
 Restart=on-failure
 RestartSec=3

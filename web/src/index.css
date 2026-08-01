@@ -87,9 +87,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composer-tools button { height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; color: #869399; background: #11181b; font-size: 10px; }
 .composer-tools button:hover { color: var(--foreground); border-color: rgba(78,214,165,.35); }
 .composer-tools button:disabled { cursor: not-allowed; opacity: .45; }
-.composer-tools button.recording { color: #ff9d98; border-color: rgba(255,118,111,.42); background: rgba(255,118,111,.08); font-variant-numeric: tabular-nums; }
 .composer-tools button svg { width: 13px; height: 13px; }
 .composer-tools > span { display: flex; align-items: center; gap: 6px; color: #56646a; font-size: 9px; }
+.dictation-control { display: inline-flex; align-items: center; gap: 7px; }
+.composer-tools .dictation-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.composer-tools .dictation-icon svg { width: 15px; height: 15px; }
+.dictation-control.recording .dictation-icon { color: #ff9d98; border-color: rgba(255,118,111,.55); background: rgba(255,118,111,.1); box-shadow: 0 0 0 4px rgba(255,118,111,.06); }
+.speech-spectrum { height: 30px; display: flex; align-items: center; gap: 2px; color: #ff9d98; }
+.speech-spectrum i { width: 2px; min-height: 4px; max-height: 26px; border-radius: 2px; background: currentColor; transition: height 50ms linear; opacity: .82; }
+.speech-spectrum small { min-width: 34px; margin-left: 4px; color: #9a8585; font: 500 9px ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
 .pending-attachments { display: flex; gap: 7px; padding: 9px 10px 0; overflow-x: auto; }
 .pending-attachment { min-width: 0; max-width: 190px; height: 42px; display: flex; align-items: center; gap: 6px; padding: 4px 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--input); }
 .pending-attachment > svg, .pending-attachment > img { flex: none; width: 30px; height: 30px; padding: 6px; object-fit: cover; border-radius: 5px; color: var(--primary); background: rgba(78,214,165,.08); }

@@ -178,7 +178,11 @@ export interface PcmRecorder {
   cancel(): void
 }
 
-export async function createPcmRecorder(): Promise<PcmRecorder> {
+const spectrumBars = 16
+
+export async function createPcmRecorder(
+  onSpectrum?: (levels: number[]) => void,
+): Promise<PcmRecorder> {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("Microphone access requires the HTTPS interface")
   }
@@ -186,20 +190,54 @@ export async function createPcmRecorder(): Promise<PcmRecorder> {
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   })
   const context = new AudioContext({ latencyHint: "interactive" })
+  if (context.state === "suspended") await context.resume()
   const source = context.createMediaStreamSource(stream)
-  const processor = context.createScriptProcessor(4096, 1, 1)
+  const processor = context.createScriptProcessor(2048, 1, 1)
+  const analyser = context.createAnalyser()
   const silent = context.createGain()
   const chunks: Float32Array[] = []
   let stopped = false
+  let spectrumFrame = 0
+  let lastSpectrumAt = 0
+  analyser.fftSize = 256
+  analyser.smoothingTimeConstant = 0.72
+  const frequencyData = new Uint8Array(analyser.frequencyBinCount)
   silent.gain.value = 0
   processor.onaudioprocess = (event) => { if (!stopped) chunks.push(event.inputBuffer.getChannelData(0).slice()) }
-  source.connect(processor); processor.connect(silent); silent.connect(context.destination)
+  source.connect(processor); source.connect(analyser)
+  processor.connect(silent); analyser.connect(silent); silent.connect(context.destination)
+
+  const updateSpectrum = (now: number) => {
+    if (stopped) return
+    if (onSpectrum && now - lastSpectrumAt >= 50) {
+      lastSpectrumAt = now
+      analyser.getByteFrequencyData(frequencyData)
+      const nyquist = context.sampleRate / 2
+      const usableBins = Math.max(spectrumBars, Math.floor(frequencyData.length * Math.min(1, 8000 / nyquist)))
+      const levels = Array.from({ length: spectrumBars }, (_, index) => {
+        const start = Math.floor(Math.pow(index / spectrumBars, 1.55) * usableBins)
+        const end = Math.max(start + 1, Math.floor(Math.pow((index + 1) / spectrumBars, 1.55) * usableBins))
+        let total = 0
+        let peak = 0
+        for (let bin = start; bin < Math.min(end, usableBins); bin++) {
+          total += frequencyData[bin]
+          peak = Math.max(peak, frequencyData[bin])
+        }
+        const average = total / Math.max(1, end - start)
+        return Math.max(0.045, Math.min(1, (average * 0.68 + peak * 0.32) / 190))
+      })
+      onSpectrum(levels)
+    }
+    spectrumFrame = window.requestAnimationFrame(updateSpectrum)
+  }
+  spectrumFrame = window.requestAnimationFrame(updateSpectrum)
 
   const close = () => {
     stopped = true
+    window.cancelAnimationFrame(spectrumFrame)
     processor.onaudioprocess = null
     stream.getTracks().forEach((track) => track.stop())
-    try { source.disconnect(); processor.disconnect(); silent.disconnect() } catch { /* already disconnected */ }
+    try { source.disconnect(); processor.disconnect(); analyser.disconnect(); silent.disconnect() } catch { /* already disconnected */ }
   }
   return {
     async stop() {

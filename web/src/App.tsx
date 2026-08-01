@@ -94,6 +94,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   const [dictation, setDictation] = useState<"idle" | "requesting" | "recording" | "transcribing">("idle")
   const [dictationSeconds, setDictationSeconds] = useState(0)
+  const [dictationSpectrum, setDictationSpectrum] = useState(() => Array(16).fill(0.045))
   const autoConnected = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const probeRef = useRef<AbortController | null>(null)
@@ -102,6 +103,7 @@ export default function App() {
   const dragDepthRef = useRef(0)
   const recorderRef = useRef<PcmRecorder | null>(null)
   const dictationStartedRef = useRef(0)
+  const dictationStartPendingRef = useRef(false)
   const dictationIntervalRef = useRef<number | null>(null)
   const dictationTimeoutRef = useRef<number | null>(null)
   const messages = conversations[cacheSlot] || []
@@ -341,21 +343,24 @@ export default function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Dictation failed")
     } finally {
+      dictationStartPendingRef.current = false
       setDictation("idle")
       setDictationSeconds(0)
+      setDictationSpectrum(Array(16).fill(0.045))
     }
   }
 
   const startDictation = async () => {
-    if (loading || dictation !== "idle") return
+    if (loading || dictation !== "idle" || dictationStartPendingRef.current) return
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       window.location.assign(`https://${window.location.hostname}:8443/`)
       return
     }
+    dictationStartPendingRef.current = true
     setDictation("requesting")
     setError("")
     try {
-      recorderRef.current = await createPcmRecorder()
+      recorderRef.current = await createPcmRecorder(setDictationSpectrum)
       dictationStartedRef.current = performance.now()
       setDictation("recording")
       dictationIntervalRef.current = window.setInterval(
@@ -364,6 +369,7 @@ export default function App() {
       )
       dictationTimeoutRef.current = window.setTimeout(() => void stopDictation(), 24500)
     } catch (cause) {
+      dictationStartPendingRef.current = false
       setDictation("idle")
       setError(cause instanceof Error ? cause.message : "Microphone access failed")
     }
@@ -543,13 +549,22 @@ export default function App() {
               <div className="composer-tools">
                 <input ref={fileInputRef} type="file" accept={attachmentAccept} multiple onChange={handleFileInput} />
                 <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loading}><Paperclip /> Attach</button>
-                <button
-                  type="button"
-                  className={cn(dictation === "recording" && "recording")}
-                  onClick={toggleDictation}
-                  disabled={loading || dictation === "requesting" || dictation === "transcribing"}
-                  aria-pressed={dictation === "recording"}
-                ><Mic /> {dictation === "recording" ? `${dictationSeconds.toFixed(1)}s` : dictation === "transcribing" ? "Recognizing" : "Dictate"}</button>
+                <div className={cn("dictation-control", dictation === "recording" && "recording")}>
+                  <button
+                    type="button"
+                    className="dictation-icon"
+                    onPointerDown={() => { if (dictation === "idle") void startDictation() }}
+                    onClick={toggleDictation}
+                    disabled={loading || dictation === "requesting" || dictation === "transcribing"}
+                    aria-label={dictation === "recording" ? "Stop dictation" : "Start dictation"}
+                    aria-pressed={dictation === "recording"}
+                    title="Lossless PCM 16 kHz · GigaAM-v3 RNN-T Q8"
+                  >{dictation === "requesting" || dictation === "transcribing" ? <LoaderCircle className="animate-spin" /> : <Mic />}</button>
+                  {dictation === "recording" ? <div className="speech-spectrum" aria-label="Live microphone spectrum">
+                    {dictationSpectrum.map((level, index) => <i key={index} style={{ height: `${Math.round(4 + level * 22)}px` }} />)}
+                    <small>{dictationSeconds.toFixed(1)}s</small>
+                  </div> : null}
+                </div>
                 <span><MessageSquareText className="size-3.5" /> {t("chat.inputHint")}</span>
               </div>
               {loading ? <Button variant="destructive" size="icon" aria-label={t("chat.stop")} onClick={() => abortRef.current?.abort()}><CircleStop className="size-4" /></Button> : <Button size="icon" aria-label={t("chat.send")} disabled={!canSend} onClick={() => void send()}><ArrowUp className="size-4" /></Button>}

@@ -40,7 +40,15 @@ Audio transcripts and text-file contents are retained so the conversation can
 continue without retransmitting binary media.
 
 Microphone capture uses Web Audio, a browser-quality resample to 16 kHz, and a
-16-bit PCM WAV encoder. It requires a secure browser context, so the reference
+16-bit PCM WAV encoder. The composer shows a dedicated microphone icon and a
+live 16-band spectrum while recording. The ASR service pads every segment with
+0.65 seconds of leading and 0.20 seconds of trailing silence. This gives the
+RNN-T encoder boundary context and prevents the first spoken word from being
+cut off when the user starts talking immediately after pressing the icon. Mic
+initialization begins on pointer-down rather than waiting for the completed
+click, and the spectrum appears only after the audio graph is actually ready.
+
+Microphone capture requires a secure browser context, so the reference
 Nginx profile exposes HTTPS on port 8443 and sends
 `Permissions-Policy: microphone=(self)`. The self-signed local certificate must
 be trusted once on the client machine before microphone permission can be

@@ -25,6 +25,8 @@ PORT = int(os.environ.get("GIGAAM_PORT", "18081"))
 THREADS = int(os.environ.get("GIGAAM_THREADS", "8"))
 MAX_AUDIO_SECONDS = float(os.environ.get("GIGAAM_MAX_AUDIO_SECONDS", "600"))
 CHUNK_SECONDS = float(os.environ.get("GIGAAM_CHUNK_SECONDS", "24"))
+LEADING_PAD_SECONDS = float(os.environ.get("GIGAAM_LEADING_PAD_SECONDS", "0.65"))
+TRAILING_PAD_SECONDS = float(os.environ.get("GIGAAM_TRAILING_PAD_SECONDS", "0.20"))
 MAX_BODY_BYTES = int(os.environ.get("GIGAAM_MAX_BODY_BYTES", str(48 * 1024 * 1024)))
 SAMPLE_RATE = 16_000
 F32_BYTES = 4
@@ -89,13 +91,19 @@ class ASREngine:
 
         decode_seconds = time.perf_counter() - started
         infer_started = time.perf_counter()
-        chunk_bytes = int(CHUNK_SECONDS * SAMPLE_RATE) * F32_BYTES
-        chunks = [
-            decoded.stdout[offset : offset + chunk_bytes]
-            for offset in range(0, len(decoded.stdout), chunk_bytes)
+        content_seconds = max(
+            1.0, CHUNK_SECONDS - LEADING_PAD_SECONDS - TRAILING_PAD_SECONDS
+        )
+        content_bytes = int(content_seconds * SAMPLE_RATE) * F32_BYTES
+        leading_silence = b"\x00" * int(LEADING_PAD_SECONDS * SAMPLE_RATE) * F32_BYTES
+        trailing_silence = b"\x00" * int(TRAILING_PAD_SECONDS * SAMPLE_RATE) * F32_BYTES
+        raw_chunks = [
+            decoded.stdout[offset : offset + content_bytes]
+            for offset in range(0, len(decoded.stdout), content_bytes)
         ]
-        if len(chunks) > 1 and len(chunks[-1]) < int(0.3 * SAMPLE_RATE) * F32_BYTES:
-            chunks[-2] += chunks.pop()
+        if len(raw_chunks) > 1 and len(raw_chunks[-1]) < int(0.3 * SAMPLE_RATE) * F32_BYTES:
+            raw_chunks[-2] += raw_chunks.pop()
+        chunks = [leading_silence + chunk + trailing_silence for chunk in raw_chunks]
         results = []
         with self.lock:
             with self.model.session(n_threads=THREADS) as session:
@@ -124,6 +132,8 @@ class ASREngine:
             "format": "pcm_f32le_16000_mono",
             "model": "GigaAM-v3 e2e RNN-T Q8_0",
             "chunks": len(chunks),
+            "leading_padding_seconds": LEADING_PAD_SECONDS,
+            "trailing_padding_seconds": TRAILING_PAD_SECONDS,
             "timings": {
                 "mel_ms": round(sum(result.timings.mel_ms for result in results), 2),
                 "encode_ms": round(
@@ -175,6 +185,8 @@ class Handler(BaseHTTPRequestHandler):
                 "threads": THREADS,
                 "max_audio_seconds": MAX_AUDIO_SECONDS,
                 "chunk_seconds": CHUNK_SECONDS,
+                "leading_padding_seconds": LEADING_PAD_SECONDS,
+                "trailing_padding_seconds": TRAILING_PAD_SECONDS,
                 "loaded_seconds": round(ENGINE.loaded_seconds, 3),
             },
         )
