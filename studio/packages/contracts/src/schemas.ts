@@ -13,6 +13,10 @@ export const AttachmentKindSchema = Type.Union([
   Type.Literal("audio"),
   Type.Literal("text"),
 ])
+export const ThemeSchema = Type.Union([
+  Type.Literal("peach-light"),
+  Type.Literal("ember-dark"),
+])
 
 export const EngineSchema = Type.Object({
   id: Type.String({ minLength: 1, maxLength: 64 }),
@@ -84,6 +88,7 @@ export const ConversationSchema = Type.Intersect([
 ])
 
 export const StudioSettingsSchema = Type.Object({
+  theme: ThemeSchema,
   defaultEngineId: Type.String(),
   systemPrompt: Type.String(),
   temperature: Type.Number({ minimum: 0, maximum: 2 }),

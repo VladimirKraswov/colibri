@@ -15,9 +15,14 @@ interface SettingsRow {
   thinking_enabled: boolean
   auto_compress: boolean
   compression_threshold: number
+  ui: Record<string, unknown> | null
 }
 
+export const themeFromUi = (ui: Record<string, unknown> | null): SettingsRecord["theme"] =>
+  ui?.theme === "ember-dark" ? "ember-dark" : "peach-light"
+
 const mapSettings = (row: SettingsRow): SettingsRecord => ({
+  theme: themeFromUi(row.ui),
   defaultEngineId: row.default_engine_id,
   systemPrompt: row.system_prompt,
   temperature: row.temperature,
@@ -33,7 +38,7 @@ const mapSettings = (row: SettingsRow): SettingsRecord => ({
 })
 
 const columns = `default_engine_id, system_prompt, temperature, top_p, top_k, min_p,
-  presence_penalty, repeat_penalty, max_tokens, thinking_enabled, auto_compress, compression_threshold`
+  presence_penalty, repeat_penalty, max_tokens, thinking_enabled, auto_compress, compression_threshold, ui`
 
 export class PostgresSettingsRepository implements SettingsRepository {
   constructor(private readonly db: Queryable) {}
@@ -49,14 +54,16 @@ export class PostgresSettingsRepository implements SettingsRepository {
         default_engine_id = $2, system_prompt = $3, temperature = $4, top_p = $5,
         top_k = $6, min_p = $7, presence_penalty = $8, repeat_penalty = $9,
         max_tokens = $10, thinking_enabled = $11, auto_compress = $12,
-        compression_threshold = $13, updated_at = now()
+        compression_threshold = $13,
+        ui = COALESCE(ui, '{}'::jsonb) || jsonb_build_object('theme', $14::text),
+        updated_at = now()
       WHERE workspace_id = $1
       RETURNING ${columns}
     `, [
       workspaceId, settings.defaultEngineId, settings.systemPrompt, settings.temperature,
       settings.topP, settings.topK, settings.minP, settings.presencePenalty,
       settings.repeatPenalty, settings.maxTokens, settings.thinkingEnabled,
-      settings.autoCompress, settings.compressionThreshold,
+      settings.autoCompress, settings.compressionThreshold, settings.theme,
     ])
     if (!result.rows[0]) throw new Error("Workspace settings row is missing")
     return mapSettings(result.rows[0])

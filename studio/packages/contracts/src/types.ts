@@ -10,6 +10,7 @@ import type {
   MessageRoleSchema,
   MessageSchema,
   StudioSettingsSchema,
+  ThemeSchema,
 } from "./schemas.js"
 
 export type AttachmentKind = Static<typeof AttachmentKindSchema>
@@ -21,6 +22,7 @@ export type Engine = Static<typeof EngineSchema>
 export type MessageRole = Static<typeof MessageRoleSchema>
 export type Message = Static<typeof MessageSchema>
 export type StudioSettings = Static<typeof StudioSettingsSchema>
+export type Theme = Static<typeof ThemeSchema>
 
 export interface ChatRequest {
   content: string

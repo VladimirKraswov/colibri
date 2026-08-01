@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f7f6f2" />
+    <meta name="theme-color" content="#fff7f1" />
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("colibri-studio-theme") === "ember-dark" ? "ember-dark" : "peach-light"
+      } catch { document.documentElement.dataset.theme = "peach-light" }
+    </script>
     <title>Colibri Studio</title>
   </head>
   <body>

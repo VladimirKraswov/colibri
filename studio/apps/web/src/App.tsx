@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport } from "@colibri/contracts"
+import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport, Theme } from "@colibri/contracts"
 
 import { api, streamMessage } from "./api/client.js"
 import { Composer } from "./components/Composer.js"
@@ -9,6 +9,7 @@ import { MessageList } from "./components/MessageList.js"
 import { SettingsDialog } from "./components/SettingsDialog.js"
 import { Sidebar } from "./components/Sidebar.js"
 import { updateFromStream } from "./lib/stream-state.js"
+import { applyTheme, loadStoredTheme } from "./lib/theme.js"
 
 const conversationsKey = "llm-studio-conversations-v1"
 const settingsKey = "llm-studio-settings-v2"
@@ -38,6 +39,7 @@ export function App() {
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [theme, setTheme] = useState<Theme>(loadStoredTheme)
   const [toast, setToast] = useState<string | null>(null)
   const abort = useRef<AbortController | null>(null)
   const importStarted = useRef(false)
@@ -53,8 +55,11 @@ export function App() {
     const data = bootstrap.data
     if (!data) return
     setPreferredEngine((current) => current ?? data.settings.defaultEngineId)
+    if (!settingsOpen) setTheme(data.settings.theme)
     if (!selectedId && data.conversations[0]) setSelectedId(data.conversations[0].id)
-  }, [bootstrap.data, selectedId])
+  }, [bootstrap.data, selectedId, settingsOpen])
+
+  useEffect(() => applyTheme(theme), [theme])
 
   useEffect(() => {
     if (!bootstrap.data || bootstrap.data.migration.localStorageImported || importStarted.current || localStorage.getItem(importMarker)) return
@@ -80,7 +85,9 @@ export function App() {
     setSidebarOpen(false)
     await queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
   } })
-  const saveSettings = useMutation({ mutationFn: api.updateSettings, onSuccess: async () => {
+  const saveSettings = useMutation({ mutationFn: api.updateSettings, onSuccess: async (value) => {
+    queryClient.setQueryData<Bootstrap>(["bootstrap"], (current) => current ? { ...current, settings: value } : current)
+    setTheme(value.theme)
     setSettingsOpen(false)
     setToast("Настройки сохранены")
     await queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
@@ -170,12 +177,17 @@ export function App() {
     await queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
   }
 
+  const closeSettings = () => {
+    setTheme(bootstrap.data?.settings.theme ?? "peach-light")
+    setSettingsOpen(false)
+  }
+
   if (bootstrap.isLoading) return <div className="boot"><span className="brand__mark">C</span><p>Запускаю Colibri Studio…</p></div>
   if (bootstrap.error || !bootstrap.data) return <div className="boot boot--error"><h1>Сервис временно недоступен</h1><p>{bootstrap.error?.message}</p><button onClick={() => void bootstrap.refetch()}>Повторить</button></div>
   const data: Bootstrap = bootstrap.data
 
   return <div className="app-shell">
-    <Sidebar open={sidebarOpen} conversations={data.conversations} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setSidebarOpen(false) }} onNew={() => void newConversation()} onDelete={(id) => void deleteConversation(id)} onSettings={() => setSettingsOpen(true)} />
+    <Sidebar open={sidebarOpen} conversations={data.conversations} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setSidebarOpen(false) }} onNew={() => void newConversation()} onDelete={(id) => void deleteConversation(id)} onSettings={() => { setSidebarOpen(false); setSettingsOpen(true) }} />
     {sidebarOpen && <button className="mobile-backdrop" aria-label="Закрыть меню" onClick={() => setSidebarOpen(false)} />}
     <main className="main">
       <header className="topbar">
@@ -191,7 +203,7 @@ export function App() {
       </section>
       <Composer value={draft} attachments={attachments} uploading={uploading} streaming={streaming} disabled={create.isPending} onChange={setDraft} onFiles={(files) => void uploadFiles(files)} onRemove={(attachment) => void removeAttachment(attachment)} onSend={() => void send()} onStop={() => abort.current?.abort()} onError={setToast} />
     </main>
-    <SettingsDialog open={settingsOpen} settings={data.settings} engines={data.engines} saving={saveSettings.isPending} onClose={() => setSettingsOpen(false)} onSave={(value) => saveSettings.mutate(value)} />
+    <SettingsDialog open={settingsOpen} settings={data.settings} engines={data.engines} saving={saveSettings.isPending} onThemePreview={setTheme} onClose={closeSettings} onSave={(value) => saveSettings.mutate(value)} />
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>
 }
