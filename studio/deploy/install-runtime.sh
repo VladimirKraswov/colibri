@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/bin:${PATH}"
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 node_version=v22.23.1
 node_archive="node-${node_version}-linux-x64.tar.xz"

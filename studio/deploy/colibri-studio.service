@@ -10,6 +10,7 @@ User=colibri-studio
 Group=colibri-studio
 WorkingDirectory=/opt/colibri-studio
 EnvironmentFile=/etc/colibri-studio/studio.env
+Environment=LANG=C.UTF-8
 ExecStart=/usr/local/bin/node /opt/colibri-studio/apps/api/dist/server.js
 Restart=always
 RestartSec=3

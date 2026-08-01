@@ -12,7 +12,8 @@ describe("OpenAIProvider", () => {
       controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"готово"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2},"timings":{"predicted_per_second":7.5}}\r\n\r\ndata: [DONE]\r\n\r\n'))
       controller.close()
     } })
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 200 })))
+    const fetchMock = vi.fn(async () => new Response(body, { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
     const provider = new OpenAIProvider("http://provider")
     const chunks = []
     for await (const chunk of provider.stream([{ role: "user", content: "test" }], {
@@ -24,5 +25,12 @@ describe("OpenAIProvider", () => {
       { type: "delta", content: "готово" },
       { type: "done", usage: { promptTokens: 10, completionTokens: 2 }, finishReason: "stop", tokensPerSecond: 7.5 },
     ])
+    const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>
+    expect(request).toMatchObject({
+      max_tokens: 100,
+      seed: -1,
+      chat_template_kwargs: { enable_thinking: true },
+    })
+    expect(request).not.toHaveProperty("max_completion_tokens")
   })
 })

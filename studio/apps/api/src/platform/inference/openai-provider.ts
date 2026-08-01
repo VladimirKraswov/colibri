@@ -41,8 +41,9 @@ export class OpenAIProvider implements InferenceProvider {
         min_p: options.minP,
         presence_penalty: options.presencePenalty,
         repeat_penalty: options.repeatPenalty,
-        max_completion_tokens: options.maxTokens,
-        enable_thinking: options.thinkingEnabled,
+        max_tokens: options.maxTokens,
+        seed: -1,
+        chat_template_kwargs: { enable_thinking: options.thinkingEnabled },
       }),
     })
     if (!response.ok || !response.body) {

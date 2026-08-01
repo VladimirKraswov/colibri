@@ -7,7 +7,7 @@
   "scripts": {
     "build": "npm run build -w @colibri/contracts && npm run build -w @colibri/api && npm run build -w @colibri/web",
     "test": "npm run test -w @colibri/api && npm run test -w @colibri/web",
-    "typecheck": "npm run typecheck -w @colibri/api && npm run typecheck -w @colibri/web",
+    "typecheck": "npm run build -w @colibri/contracts && npm run typecheck -w @colibri/api && npm run typecheck -w @colibri/web",
     "dev:api": "npm run dev -w @colibri/api",
     "dev:web": "npm run dev -w @colibri/web",
     "migrate": "npm run migrate -w @colibri/api",
