@@ -9,7 +9,9 @@ import type {
   EngineSchema,
   MessageRoleSchema,
   MessageSchema,
-  ControlSettingsSchema,
+  ServiceEndpointSchema,
+  ServiceKindSchema,
+  CenterSettingsSchema,
   ThemeSchema,
 } from "./schemas.js"
 
@@ -21,7 +23,9 @@ export type ConversationSummary = Static<typeof ConversationSummarySchema>
 export type Engine = Static<typeof EngineSchema>
 export type MessageRole = Static<typeof MessageRoleSchema>
 export type Message = Static<typeof MessageSchema>
-export type ControlSettings = Static<typeof ControlSettingsSchema>
+export type ServiceEndpoint = Static<typeof ServiceEndpointSchema>
+export type ServiceKind = Static<typeof ServiceKindSchema>
+export type CenterSettings = Static<typeof CenterSettingsSchema>
 export type Theme = Static<typeof ThemeSchema>
 
 export interface ChatRequest {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Attachment } from "@llm-control/contracts"
+import type { Attachment } from "@ai-control-center/contracts"
 
 import { api } from "../api/client.js"
 import { dictationCopy, nextDictationPhase, type DictationPhase } from "../lib/dictation-state.js"

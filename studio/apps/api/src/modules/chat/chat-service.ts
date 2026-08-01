@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream"
 
-import type { ChatRequest, ChatStreamEvent } from "@llm-control/contracts"
+import type { ChatRequest, ChatStreamEvent } from "@ai-control-center/contracts"
 
 import { AppError, notFound } from "../../platform/errors.js"
 import type {

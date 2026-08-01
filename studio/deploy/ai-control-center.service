@@ -1,17 +1,17 @@
 [Unit]
-Description=LLM Control Fastify application
+Description=AI Control Center Fastify application
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=llm-control
-Group=llm-control
-WorkingDirectory=/opt/llm-control
-EnvironmentFile=/etc/llm-control/control.env
+User=ai-control-center
+Group=ai-control-center
+WorkingDirectory=/opt/ai-control-center
+EnvironmentFile=/etc/ai-control-center/center.env
 Environment=LANG=C.UTF-8
-ExecStart=/usr/local/bin/node /opt/llm-control/apps/api/dist/server.js
+ExecStart=/usr/local/bin/node /opt/ai-control-center/apps/api/dist/server.js
 Restart=always
 RestartSec=3
 TimeoutStartSec=90
@@ -21,7 +21,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/llm-control
+ReadWritePaths=/var/lib/ai-control-center
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

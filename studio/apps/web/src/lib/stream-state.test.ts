@@ -1,4 +1,4 @@
-import type { Conversation, Message } from "@llm-control/contracts"
+import type { Conversation, Message } from "@ai-control-center/contracts"
 import { describe, expect, it } from "vitest"
 
 import { updateFromStream } from "./stream-state.js"

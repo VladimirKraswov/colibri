@@ -3,22 +3,22 @@ import { describe, expect, it } from "vitest"
 import { loadConfig } from "./config.js"
 
 const baseEnv = {
-  DATABASE_URL: "postgresql://llm_control:test@127.0.0.1/llm_control",
+  DATABASE_URL: "postgresql://ai_control_center:test@127.0.0.1/ai_control_center",
   S3_ENDPOINT: "http://minio:9000",
   S3_ACCESS_KEY_ID: "test-key",
   S3_SECRET_ACCESS_KEY: "test-secret",
 }
 
 describe("loadConfig inference providers", () => {
-  it("uses the LLM Control service namespace", () => {
+  it("uses the AI Control Center service namespace", () => {
     const config = loadConfig({
       ...baseEnv,
-      LLM_CONTROL_HOST: "0.0.0.0",
-      LLM_CONTROL_PORT: "3030",
+      AI_CONTROL_CENTER_HOST: "0.0.0.0",
+      AI_CONTROL_CENTER_PORT: "3030",
     })
     expect(config.host).toBe("0.0.0.0")
     expect(config.port).toBe(3030)
-    expect(config.s3.bucket).toBe("llm-control")
+    expect(config.s3.bucket).toBe("ai-control-center")
   })
 
   it("keeps the two-provider compatibility configuration", () => {

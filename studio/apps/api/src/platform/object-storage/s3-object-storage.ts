@@ -9,7 +9,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3"
 
-import type { ControlConfig } from "../../config.js"
+import type { CenterConfig } from "../../config.js"
 import { notFound } from "../errors.js"
 import type { ObjectStorage } from "./object-storage.js"
 
@@ -18,7 +18,7 @@ export class S3ObjectStorage implements ObjectStorage {
   readonly bucket: string
   private readonly client: S3Client
 
-  constructor(config: ControlConfig["s3"]) {
+  constructor(config: CenterConfig["s3"]) {
     this.bucket = config.bucket
     this.client = new S3Client({
       endpoint: config.endpoint,

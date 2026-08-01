@@ -30,6 +30,29 @@ export const EngineSchema = Type.Object({
   slotsTotal: Type.Integer({ minimum: 0 }),
 })
 
+export const ServiceKindSchema = Type.Union([
+  Type.Literal("llm"),
+  Type.Literal("asr"),
+  Type.Literal("tts"),
+  Type.Literal("image-generation"),
+  Type.Literal("other"),
+])
+
+export const ServiceEndpointSchema = Type.Object({
+  id: Type.String({ minLength: 1, maxLength: 64 }),
+  displayName: Type.String(),
+  kind: ServiceKindSchema,
+  description: Type.String(),
+  status: Type.Union([Type.Literal("online"), Type.Literal("offline"), Type.Literal("checking")]),
+  host: Type.String(),
+  port: Type.Integer({ minimum: 1, maximum: 65535 }),
+  baseUrl: Type.String({ format: "uri" }),
+  endpoint: Type.String({ format: "uri" }),
+  protocol: Type.String(),
+  capabilities: Type.Array(Type.String()),
+  model: Type.Optional(Type.String()),
+})
+
 export const AttachmentSchema = Type.Object({
   id: IdSchema,
   kind: AttachmentKindSchema,
@@ -87,7 +110,7 @@ export const ConversationSchema = Type.Intersect([
   }),
 ])
 
-export const ControlSettingsSchema = Type.Object({
+export const CenterSettingsSchema = Type.Object({
   theme: ThemeSchema,
   defaultEngineId: Type.String(),
   systemPrompt: Type.String(),
@@ -106,7 +129,7 @@ export const ControlSettingsSchema = Type.Object({
 export const BootstrapSchema = Type.Object({
   workspace: Type.Object({ id: IdSchema, slug: Type.String(), name: Type.String() }),
   engines: Type.Array(EngineSchema),
-  settings: ControlSettingsSchema,
+  settings: CenterSettingsSchema,
   conversations: Type.Array(ConversationSummarySchema),
   storage: Type.Object({ provider: Type.Literal("s3"), bucket: Type.String(), healthy: Type.Boolean() }),
   migration: Type.Object({ localStorageImported: Type.Boolean() }),

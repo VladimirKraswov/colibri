@@ -7,9 +7,9 @@ import Fastify, { type FastifyInstance } from "fastify"
 
 import { AppError } from "./platform/errors.js"
 import { registerApiRoutes } from "./routes.js"
-import type { ControlServices } from "./services.js"
+import type { CenterServices } from "./services.js"
 
-export async function buildApp(services: ControlServices): Promise<FastifyInstance> {
+export async function buildApp(services: CenterServices): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: services.config.logLevel },
     trustProxy: true,

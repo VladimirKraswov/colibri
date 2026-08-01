@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 
-import type { LegacyLocalStorageImport } from "@llm-control/contracts"
+import type { LegacyLocalStorageImport } from "@ai-control-center/contracts"
 
 import type { ImportRepository, ImportResult } from "../../modules/legacy-import/import-repository.js"
 import { inTransaction, type DatabasePool } from "./pool.js"

@@ -1,6 +1,7 @@
-# LLM Control
+# AI Control Center
 
-Standalone local LLM product shell for the existing CPU inference providers.
+Standalone gateway and control plane for local AI services: LLM/VLM inference,
+ASR, TTS and future generation endpoints.
 
 - React 19 client in `apps/web`;
 - Fastify 5 application/API in `apps/api`;
@@ -25,7 +26,7 @@ compiled React application from the same Fastify process. Nginx terminates TLS
 and preserves the existing OpenAI-compatible inference routes.
 
 In a distributed deployment, `INFERENCE_PROVIDERS_JSON` supplies an extensible
-map of OpenAI-compatible inference endpoints. The LLM Control plane can
+map of OpenAI-compatible inference endpoints. The AI Control Center plane can
 therefore run in its own container and route to the CPU node, a VM5090 VLM, or
 later model nodes without recompiling the API. `ASR_BASE_URL` remains separate
 because speech transcription has a different contract.
@@ -36,8 +37,8 @@ service startup and protected by a PostgreSQL advisory lock.
 ## Deployment profiles
 
 - `deploy/install-runtime.sh` bootstraps the original co-located profile;
-- `deploy/install-distributed-runtime.sh` bootstraps an isolated LLM Control and PostgreSQL node;
-- `deploy/nginx-llm-control.conf` is the co-located Nginx profile;
-- `deploy/nginx-control-gateway.conf` proxies compatibility routes from LXC 202 to CPU inference in LXC 201;
-- `deploy/nginx-cpu-inference-gateway.conf` keeps the old LXC 201 address compatible after LLM Control moves;
+- `deploy/install-distributed-runtime.sh` bootstraps an isolated AI Control Center and PostgreSQL node;
+- `deploy/nginx-ai-control-center.conf` is the co-located Nginx profile;
+- `deploy/nginx-ai-control-center-gateway.conf` proxies compatibility routes from LXC 202 to CPU inference in LXC 201;
+- `deploy/nginx-cpu-inference-gateway.conf` keeps the old LXC 201 address compatible after AI Control Center moves;
 - `deploy/distributed.env.example` documents the node topology and future provider map.

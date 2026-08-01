@@ -1,23 +1,23 @@
 import { useEffect, useState } from "react"
-import type { Engine, ControlSettings, Theme } from "@llm-control/contracts"
+import type { Engine, CenterSettings, Theme } from "@ai-control-center/contracts"
 
 import { CloseIcon } from "./Icons.js"
 
 interface SettingsDialogProps {
   open: boolean
-  settings: ControlSettings
+  settings: CenterSettings
   engines: Engine[]
   saving: boolean
   onThemePreview(theme: Theme): void
   onClose(): void
-  onSave(value: ControlSettings): void
+  onSave(value: CenterSettings): void
 }
 
 export function SettingsDialog({ open, settings, engines, saving, onThemePreview, onClose, onSave }: SettingsDialogProps) {
   const [draft, setDraft] = useState(settings)
   useEffect(() => setDraft(settings), [settings, open])
   if (!open) return null
-  const number = (key: keyof ControlSettings, value: string) => setDraft({ ...draft, [key]: Number(value) })
+  const number = (key: keyof CenterSettings, value: string) => setDraft({ ...draft, [key]: Number(value) })
   const selectTheme = (theme: Theme) => {
     setDraft({ ...draft, theme })
     onThemePreview(theme)

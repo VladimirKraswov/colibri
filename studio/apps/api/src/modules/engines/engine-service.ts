@@ -1,4 +1,4 @@
-import type { Engine } from "@llm-control/contracts"
+import type { Engine } from "@ai-control-center/contracts"
 
 import type { ProviderRegistry } from "../../platform/inference/openai-provider.js"
 import type { EngineRepository } from "./engine-repository.js"

@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport, Theme } from "@llm-control/contracts"
+import type { Attachment, Bootstrap, Conversation, Engine, LegacyLocalStorageImport, Theme } from "@ai-control-center/contracts"
 
 import { api, streamMessage } from "./api/client.js"
 import { Composer } from "./components/Composer.js"
 import { MenuIcon, SettingsIcon } from "./components/Icons.js"
 import { MessageList } from "./components/MessageList.js"
 import { SettingsDialog } from "./components/SettingsDialog.js"
-import { Sidebar } from "./components/Sidebar.js"
+import { ServicesPage } from "./components/ServicesPage.js"
+import { Sidebar, type CenterView } from "./components/Sidebar.js"
 import { updateFromStream } from "./lib/stream-state.js"
 import { applyTheme, loadStoredTheme } from "./lib/theme.js"
 
 // These names belong to the browser-only predecessor and remain read-only migration inputs.
 const legacyConversationsKey = "llm-studio-conversations-v1"
 const legacySettingsKey = "llm-studio-settings-v2"
-const importMarker = "llm-control-postgres-import-v1"
+const importMarker = "ai-control-center-postgres-import-v1"
 
 const legacyPayload = (): LegacyLocalStorageImport | null => {
   try {
@@ -39,6 +40,7 @@ export function App() {
   const [uploading, setUploading] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeView, setActiveView] = useState<CenterView>("chat")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadStoredTheme)
   const [toast, setToast] = useState<string | null>(null)
@@ -183,14 +185,14 @@ export function App() {
     setSettingsOpen(false)
   }
 
-  if (bootstrap.isLoading) return <div className="boot"><span className="brand__mark">L</span><p>Запускаю LLM Control…</p></div>
+  if (bootstrap.isLoading) return <div className="boot"><span className="brand__mark">A</span><p>Запускаю AI Control Center…</p></div>
   if (bootstrap.error || !bootstrap.data) return <div className="boot boot--error"><h1>Сервис временно недоступен</h1><p>{bootstrap.error?.message}</p><button onClick={() => void bootstrap.refetch()}>Повторить</button></div>
   const data: Bootstrap = bootstrap.data
 
   return <div className="app-shell">
-    <Sidebar open={sidebarOpen} conversations={data.conversations} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setSidebarOpen(false) }} onNew={() => void newConversation()} onDelete={(id) => void deleteConversation(id)} onSettings={() => { setSidebarOpen(false); setSettingsOpen(true) }} />
+    <Sidebar open={sidebarOpen} activeView={activeView} conversations={data.conversations} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setSidebarOpen(false) }} onNew={() => void newConversation()} onDelete={(id) => void deleteConversation(id)} onView={(view) => { setActiveView(view); setSidebarOpen(false) }} onSettings={() => { setSidebarOpen(false); setSettingsOpen(true) }} />
     {sidebarOpen && <button className="mobile-backdrop" aria-label="Закрыть меню" onClick={() => setSidebarOpen(false)} />}
-    <main className="main">
+    {activeView === "chat" ? <main className="main">
       <header className="topbar">
         <button className="mobile-menu" onClick={() => setSidebarOpen(true)}><MenuIcon /></button>
         <label className="engine-select"><span className={`status-dot ${currentEngine?.status === "online" ? "is-online" : ""}`} /><span className="engine-select__copy"><small>Модель</small><select value={currentEngineId} onChange={(event) => void switchEngine(event.target.value)} disabled={streaming || create.isPending}>
@@ -203,7 +205,7 @@ export function App() {
         <div ref={bottom} />
       </section>
       <Composer value={draft} attachments={attachments} uploading={uploading} streaming={streaming} disabled={create.isPending} onChange={setDraft} onFiles={(files) => void uploadFiles(files)} onRemove={(attachment) => void removeAttachment(attachment)} onSend={() => void send()} onStop={() => abort.current?.abort()} onError={setToast} />
-    </main>
+    </main> : <ServicesPage onMenu={() => setSidebarOpen(true)} onSettings={() => setSettingsOpen(true)} onToast={setToast} />}
     <SettingsDialog open={settingsOpen} settings={data.settings} engines={data.engines} saving={saveSettings.isPending} onThemePreview={setTheme} onClose={closeSettings} onSave={(value) => saveSettings.mutate(value)} />
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>

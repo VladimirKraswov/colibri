@@ -1,8 +1,9 @@
-import type { ControlConfig } from "./config.js"
+import type { CenterConfig } from "./config.js"
 import { AttachmentService } from "./modules/attachments/attachment-service.js"
 import { ChatService } from "./modules/chat/chat-service.js"
 import type { WorkspaceRecord } from "./modules/domain.js"
 import { SpeechService } from "./modules/speech/speech-service.js"
+import { ServiceCatalogService } from "./modules/service-catalog/service-catalog-service.js"
 import { PostgresAttachmentRepository } from "./platform/database/postgres-attachment-repository.js"
 import { PostgresConversationRepository } from "./platform/database/postgres-conversation-repository.js"
 import { PostgresEngineRepository } from "./platform/database/postgres-engine-repository.js"
@@ -12,8 +13,8 @@ import type { DatabasePool } from "./platform/database/pool.js"
 import { OpenAIProvider, ProviderRegistry } from "./platform/inference/openai-provider.js"
 import type { ObjectStorage } from "./platform/object-storage/object-storage.js"
 
-export interface ControlServices {
-  config: ControlConfig
+export interface CenterServices {
+  config: CenterConfig
   pool: DatabasePool
   workspace: WorkspaceRecord
   storage: ObjectStorage
@@ -24,16 +25,17 @@ export interface ControlServices {
   attachments: PostgresAttachmentRepository
   imports: PostgresImportRepository
   speech: SpeechService
+  serviceCatalog: ServiceCatalogService
   attachmentService: AttachmentService
   chatService: ChatService
 }
 
 export function createServices(
-  config: ControlConfig,
+  config: CenterConfig,
   pool: DatabasePool,
   workspace: WorkspaceRecord,
   storage: ObjectStorage,
-): ControlServices {
+): CenterServices {
   const engines = new PostgresEngineRepository(pool)
   const settings = new PostgresSettingsRepository(pool)
   const conversations = new PostgresConversationRepository(pool)
@@ -43,6 +45,7 @@ export function createServices(
   const providers = new ProviderRegistry(new Map(
     Object.entries(config.providers.inference).map(([key, baseUrl]) => [key, new OpenAIProvider(baseUrl)]),
   ))
+  const serviceCatalog = new ServiceCatalogService(engines, providers, config.providers)
   const attachmentService = new AttachmentService(workspace, attachments, storage, speech)
   const chatService = new ChatService(
     workspace,
@@ -65,6 +68,7 @@ export function createServices(
     attachments,
     imports,
     speech,
+    serviceCatalog,
     attachmentService,
     chatService,
   }

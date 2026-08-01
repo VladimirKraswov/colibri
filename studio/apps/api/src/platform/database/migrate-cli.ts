@@ -5,7 +5,7 @@ import { runMigrations } from "./migrator.js"
 const pool = createPool(loadConfig())
 try {
   await runMigrations(pool)
-  process.stdout.write("LLM Control migrations applied\n")
+  process.stdout.write("AI Control Center migrations applied\n")
 } finally {
   await pool.end()
 }

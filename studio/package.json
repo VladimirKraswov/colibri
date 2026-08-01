@@ -1,17 +1,17 @@
 {
-  "name": "llm-control",
+  "name": "ai-control-center",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "build": "npm run build -w @llm-control/contracts && npm run build -w @llm-control/api && npm run build -w @llm-control/web",
-    "test": "npm run test -w @llm-control/api && npm run test -w @llm-control/web",
-    "typecheck": "npm run build -w @llm-control/contracts && npm run typecheck -w @llm-control/api && npm run typecheck -w @llm-control/web",
-    "dev:api": "npm run dev -w @llm-control/api",
-    "dev:web": "npm run dev -w @llm-control/web",
-    "migrate": "npm run migrate -w @llm-control/api",
-    "start": "npm run start -w @llm-control/api"
+    "build": "npm run build -w @ai-control-center/contracts && npm run build -w @ai-control-center/api && npm run build -w @ai-control-center/web",
+    "test": "npm run test -w @ai-control-center/api && npm run test -w @ai-control-center/web",
+    "typecheck": "npm run build -w @ai-control-center/contracts && npm run typecheck -w @ai-control-center/api && npm run typecheck -w @ai-control-center/web",
+    "dev:api": "npm run dev -w @ai-control-center/api",
+    "dev:web": "npm run dev -w @ai-control-center/web",
+    "migrate": "npm run migrate -w @ai-control-center/api",
+    "start": "npm run start -w @ai-control-center/api"
   },
   "engines": {
     "node": ">=22.12"

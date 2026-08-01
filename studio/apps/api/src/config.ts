@@ -1,6 +1,6 @@
 import path from "node:path"
 
-export interface ControlConfig {
+export interface CenterConfig {
   env: "development" | "test" | "production"
   host: string
   port: number
@@ -74,19 +74,19 @@ const inferenceProviders = (env: NodeJS.ProcessEnv): Record<string, string> => {
   }))
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlConfig {
-  const nodeEnv = (env.NODE_ENV ?? "development") as ControlConfig["env"]
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): CenterConfig {
+  const nodeEnv = (env.NODE_ENV ?? "development") as CenterConfig["env"]
   if (!["development", "test", "production"].includes(nodeEnv)) {
     throw new Error("NODE_ENV must be development, test or production")
   }
   return {
     env: nodeEnv,
-    host: required(env, "LLM_CONTROL_HOST", "127.0.0.1"),
-    port: integer(required(env, "LLM_CONTROL_PORT", "3000"), "LLM_CONTROL_PORT", 1, 65535),
-    publicOrigin: required(env, "LLM_CONTROL_PUBLIC_ORIGIN", "http://127.0.0.1:3000"),
-    defaultWorkspace: required(env, "LLM_CONTROL_DEFAULT_WORKSPACE", "local"),
-    dataDir: path.resolve(required(env, "LLM_CONTROL_DATA_DIR", "./data")),
-    webRoot: path.resolve(required(env, "LLM_CONTROL_WEB_ROOT", "../web/dist")),
+    host: required(env, "AI_CONTROL_CENTER_HOST", "127.0.0.1"),
+    port: integer(required(env, "AI_CONTROL_CENTER_PORT", "3000"), "AI_CONTROL_CENTER_PORT", 1, 65535),
+    publicOrigin: required(env, "AI_CONTROL_CENTER_PUBLIC_ORIGIN", "http://127.0.0.1:3000"),
+    defaultWorkspace: required(env, "AI_CONTROL_CENTER_DEFAULT_WORKSPACE", "local"),
+    dataDir: path.resolve(required(env, "AI_CONTROL_CENTER_DATA_DIR", "./data")),
+    webRoot: path.resolve(required(env, "AI_CONTROL_CENTER_WEB_ROOT", "../web/dist")),
     database: {
       url: required(env, "DATABASE_URL"),
       poolMax: integer(required(env, "DATABASE_POOL_MAX", "12"), "DATABASE_POOL_MAX", 1, 100),
@@ -94,7 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlConfig 
     s3: {
       endpoint: required(env, "S3_ENDPOINT"),
       region: required(env, "S3_REGION", "us-east-1"),
-      bucket: required(env, "S3_BUCKET", "llm-control"),
+      bucket: required(env, "S3_BUCKET", "ai-control-center"),
       accessKeyId: required(env, "S3_ACCESS_KEY_ID"),
       secretAccessKey: required(env, "S3_SECRET_ACCESS_KEY"),
       forcePathStyle: boolean(required(env, "S3_FORCE_PATH_STYLE", "true")),

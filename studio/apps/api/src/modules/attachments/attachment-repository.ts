@@ -1,4 +1,4 @@
-import type { AttachmentKind } from "@llm-control/contracts"
+import type { AttachmentKind } from "@ai-control-center/contracts"
 
 import type { AttachmentRecord } from "../domain.js"
 

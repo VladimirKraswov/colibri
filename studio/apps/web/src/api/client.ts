@@ -5,8 +5,9 @@ import type {
   ChatStreamEvent,
   Conversation,
   LegacyLocalStorageImport,
-  ControlSettings,
-} from "@llm-control/contracts"
+  ServiceEndpoint,
+  CenterSettings,
+} from "@ai-control-center/contracts"
 
 interface ApiErrorBody { error?: { message?: string } }
 
@@ -20,6 +21,7 @@ const json = async <T>(response: Response): Promise<T> => {
 
 export const api = {
   bootstrap: () => fetch("/api/v1/bootstrap").then((response) => json<Bootstrap>(response)),
+  services: () => fetch("/api/v1/services").then((response) => json<ServiceEndpoint[]>(response)),
   conversation: (id: string) => fetch(`/api/v1/conversations/${id}`).then((response) => json<Conversation>(response)),
   createConversation: (engineId: string) => fetch("/api/v1/conversations", {
     method: "POST",
@@ -30,11 +32,11 @@ export const api = {
     const response = await fetch(`/api/v1/conversations/${id}`, { method: "DELETE" })
     if (!response.ok) await json(response)
   },
-  updateSettings: (settings: ControlSettings) => fetch("/api/v1/settings", {
+  updateSettings: (settings: CenterSettings) => fetch("/api/v1/settings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(settings),
-  }).then((response) => json<ControlSettings>(response)),
+  }).then((response) => json<CenterSettings>(response)),
   upload: (file: File) => {
     const form = new FormData()
     form.append("file", file, file.name)

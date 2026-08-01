@@ -1,4 +1,4 @@
-import type { Attachment, Conversation, ConversationSummary, Message, ControlSettings } from "@llm-control/contracts"
+import type { Attachment, Conversation, ConversationSummary, Message, CenterSettings } from "@ai-control-center/contracts"
 
 export interface WorkspaceRecord {
   id: string
@@ -34,7 +34,7 @@ export interface ConversationRecord extends Omit<Conversation, "messages"> {
 }
 
 export type ConversationSummaryRecord = ConversationSummary
-export type SettingsRecord = ControlSettings
+export type SettingsRecord = CenterSettings
 
 export interface TurnCreation {
   conversation: ConversationRecord

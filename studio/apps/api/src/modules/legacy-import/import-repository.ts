@@ -1,4 +1,4 @@
-import type { LegacyLocalStorageImport } from "@llm-control/contracts"
+import type { LegacyLocalStorageImport } from "@ai-control-center/contracts"
 
 export interface ImportResult {
   duplicate: boolean

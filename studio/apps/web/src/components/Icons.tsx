@@ -14,3 +14,7 @@ export const StopIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><re
 export const MenuIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><path d="M4 6h16M4 12h16M4 18h16" /></Icon>
 export const CloseIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><path d="m6 6 12 12M18 6 6 18" /></Icon>
 export const FileIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><path d="M6 2h8l4 4v16H6z" /><path d="M14 2v5h5" /></Icon>
+export const ChatIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" /></Icon>
+export const ServicesIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><path d="M17.5 14v7M14 17.5h7" /></Icon>
+export const CopyIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></Icon>
+export const RefreshIcon = (props: SVGProps<SVGSVGElement>) => <Icon {...props}><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 9A7 7 0 0 1 18 6l2 6M18 15a7 7 0 0 1-11.9 3L4 12" /></Icon>

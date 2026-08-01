@@ -1,5 +1,5 @@
 {
-  "name": "@llm-control/api",
+  "name": "@ai-control-center/api",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1101.0",
-    "@llm-control/contracts": "*",
+    "@ai-control-center/contracts": "*",
     "@fastify/helmet": "13.1.0",
     "@fastify/multipart": "10.1.0",
     "@fastify/static": "10.1.2",

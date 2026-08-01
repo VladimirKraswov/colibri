@@ -1,4 +1,4 @@
-import type { Attachment, Conversation, ConversationSummary, Message } from "@llm-control/contracts"
+import type { Attachment, Conversation, ConversationSummary, Message } from "@ai-control-center/contracts"
 
 import type {
   AttachmentRecord,

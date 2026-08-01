@@ -1,4 +1,4 @@
-import type { ChatRequest } from "@llm-control/contracts"
+import type { ChatRequest } from "@ai-control-center/contracts"
 
 import type {
   ConversationRecord,

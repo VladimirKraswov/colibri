@@ -1,4 +1,4 @@
-import type { Message } from "@llm-control/contracts"
+import type { Message } from "@ai-control-center/contracts"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
