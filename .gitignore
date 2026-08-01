@@ -6,6 +6,11 @@ __pycache__/
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo
+studio/node_modules/
+studio/**/node_modules/
+studio/**/dist/
+studio/**/*.tsbuildinfo
+studio/.env
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 

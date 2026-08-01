@@ -1,0 +1,37 @@
+[Unit]
+Description=Colibri Studio Fastify application
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=colibri-studio
+Group=colibri-studio
+WorkingDirectory=/opt/colibri-studio
+EnvironmentFile=/etc/colibri-studio/studio.env
+ExecStart=/usr/local/bin/node /opt/colibri-studio/apps/api/dist/server.js
+Restart=always
+RestartSec=3
+TimeoutStartSec=90
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/colibri-studio
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+UMask=0027
+TasksMax=512
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target
