@@ -83,12 +83,14 @@ export class ChatService {
     let usage: { promptTokens?: number; completionTokens?: number } = {}
     let finishReason: string | undefined
     let tokensPerSecond: number | undefined
+    let generatedChunks = 0
     const started = performance.now()
     try {
       for await (const chunk of provider.stream(prompt, options, signal)) {
         if (chunk.type === "delta") {
           content += chunk.content ?? ""
           reasoning += chunk.reasoning ?? ""
+          if (chunk.content) generatedChunks++
           yield {
             type: "message.delta",
             messageId: turn.assistantMessage.id,
@@ -105,14 +107,16 @@ export class ChatService {
       content = cleaned.content
       if (cleaned.stopped) finishReason = "repetition"
       const elapsedSeconds = (performance.now() - started) / 1_000
+      const completionTokens = usage.completionTokens ?? generatedChunks
+      const measuredTokensPerSecond = tokensPerSecond ?? (generatedChunks ? generatedChunks / Math.max(elapsedSeconds, 0.1) : undefined)
       const message = await this.conversations.completeAssistant(this.workspace.id, turn.assistantMessage.id, {
         content: content || "Модель завершила ответ без текстового содержимого.",
         ...(reasoning ? { reasoning } : {}),
         status: signal.aborted ? "cancelled" : "complete",
         stats: {
           ...(usage.promptTokens !== undefined ? { promptTokens: usage.promptTokens } : {}),
-          ...(usage.completionTokens !== undefined ? { completionTokens: usage.completionTokens } : {}),
-          ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+          ...(completionTokens ? { completionTokens } : {}),
+          ...(measuredTokensPerSecond !== undefined ? { tokensPerSecond: measuredTokensPerSecond } : {}),
           elapsedSeconds,
           ...(finishReason ? { finishReason } : {}),
         },
